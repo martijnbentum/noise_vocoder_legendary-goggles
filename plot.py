@@ -11,9 +11,10 @@ def compare_spectrogram(x, y, sample_rate = 16000,
     '''
     fig, axes = plt.subplots(1, 2, sharey=True, figsize=(10, 4))
 
-    p_x, *_, im  = axes[0].specgram(x, cmap='Blues', Fs=sample_rate)
+    p_x, *_, im  = axes[0].specgram(x, cmap='gray',NFFT=512, noverlap = 256,
+    Fs=sample_rate)
     vmin, vmax = 10 * np.log10([np.min(p_x), np.max(p_x)])
-    _ = axes[1].specgram(y, cmap='Blues', Fs=sample_rate, vmin=vmin, vmax=vmax)
+    _ = axes[1].specgram(y, cmap='gray', Fs=sample_rate, vmin=vmin, vmax=vmax)
     axes[0].set_title(names[0])
     axes[1].set_title(names[1])
     for ax in axes:
@@ -77,7 +78,7 @@ def plot_stacked_sigals(signals, names, envelopes = None, title = '',
     sample_rate        the sample rate of the signals
     '''
     ylim = sp.find_min_max_for_signal_list(signals)
-    fig, axes = plt.subplots(len(signals), 1, figsize=(10, 4))
+    fig, axes = plt.subplots(len(signals), 1, figsize=(6, 10))
     for i, signal in enumerate(signals):
         show_legend = True if i == 0 else False
         show_xaxis = True if i == len(signals) - 1 else False
@@ -86,5 +87,35 @@ def plot_stacked_sigals(signals, names, envelopes = None, title = '',
             ax=axes[i], show_legend = show_legend, show_xaxis = show_xaxis,
             show_yaxis = show_yaxis, ylim = ylim, )
     plt.suptitle(title)
+    plt.tight_layout()
     plt.show()
+
+def plot_grid_signals(left_side_signals, right_side_signals, left_side_names,
+    right_side_names, left_side_envelopes = None, right_side_envelopes = None,
+    title = '', sample_rate = 16000, figsize = (10, 10)):
+    all_signals = left_side_signals + right_side_signals
+    ylim = sp.find_min_max_for_signal_list(all_signals)
+    fig, axes = plt.subplots(len(left_side_signals), 2, figsize=figsize)
+    for i, signal in enumerate(left_side_signals):
+        show_legend = True if i == 0 else False
+        show_xaxis = True if i == len(left_side_signals) - 1 else False
+        show_yaxis = True if i == len(left_side_signals) - 1 else False
+        ax = axes[i][0] if len(left_side_signals) > 1 else axes[0]
+        plot_signal(signal, sample_rate, title=left_side_names[i], 
+            envelope=left_side_envelopes[i], ax=ax, 
+            show_legend = show_legend, show_xaxis = show_xaxis,
+            show_yaxis = show_yaxis, ylim = ylim)
+    for i, signal in enumerate(right_side_signals):
+        show_legend = True if i == 0 else False
+        show_xaxis = True if i == len(right_side_signals) - 1 else False
+        show_yaxis = True if i == len(right_side_signals) - 1 else False
+        ax = axes[i][1] if len(left_side_signals) > 1 else axes[1]
+        plot_signal(signal, sample_rate, title=right_side_names[i], 
+            envelope=right_side_envelopes[i], ax=ax, 
+            show_legend = show_legend, show_xaxis = show_xaxis,
+            show_yaxis = show_yaxis, ylim = ylim)
+    plt.suptitle(title)
+    plt.tight_layout()
+    plt.show()
+
 
