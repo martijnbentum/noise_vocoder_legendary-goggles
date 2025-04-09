@@ -251,6 +251,17 @@ class Vocoder:
         '''play the vocoded signal'''
         audio.play_audio(self.vocoded_signal, self.sample_rate)
 
+    def write_vocoded(self, filename = None):
+        '''write the vocoded signal to a file'''
+        if filename is None and self.filename is None:
+            raise ValueError('Either filename or self.filename must be provided')
+        if filename is None: filename = self.filename
+        path = Path(filename)
+        vocoded_path = path.parent / f'vocoded_{path.name}'
+        filename = str(vocoded_path)
+        audio.write_audio(self.vocoded_signal, filename, self.sample_rate)
+        return filename
+
         
             
 
