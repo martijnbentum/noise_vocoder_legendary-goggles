@@ -1,5 +1,6 @@
 import librosa
 import sounddevice as sd
+import soundfile as sf
 import subprocess
 
 def load_audio_file(file_path, sample_rate = 16000, start = 0.0, end = None):
@@ -43,4 +44,9 @@ def play_audio(signal, sample_rate = 16000):
     '''play audio signal'''
     sd.play(signal, sample_rate)
     sd.wait()
+
+def write_audio(signal, file_path, sample_rate = 16000):
+    '''write audio signal to file'''
+    sf.write(file_path, signal, sample_rate)
+    return file_path
 
