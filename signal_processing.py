@@ -2,6 +2,15 @@ import audio
 import numpy as np
 import scipy
 
+def extract_kaiser_20_envelope(x, kaiser_beta = 20, sample_rate = 16000):
+    # x = x**2
+    x = np.abs(x)
+    window_size = int(sample_rate * 0.064)
+    window = np.kaiser(window_size, kaiser_beta)
+    window /= np.sum(window)
+    return np.convolve(x, window, mode='same') 
+    
+
 def extract_envelope(x, cutoff=30, order=1, sample_rate=16000, 
     smoothing = True):
     '''extract the amplitude envelope of a signal using a low-pass filter.
