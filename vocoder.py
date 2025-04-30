@@ -96,6 +96,8 @@ five_bands = np.array([100, 315, 705, 1410, 2687, 5000])
 # based on (0)
 six_bands= np.array([50,229,558,1161,2265,4290,7999])
 
+bands = [two_bands, three_bands, four_bands, five_bands, six_bands]
+
 class Vocoder:
     def __init__(self, signal = None, sample_rate = 16000, frequencies = None,
         filename = None, butterworth_order = 4, match_rms = True,):
@@ -263,8 +265,8 @@ class Vocoder:
             raise ValueError('Either filename or self.filename must be provided')
         if filename is None: filename = self.filename
         path = Path(filename)
-        vocoded_path = path.parent / f'vocoded_{path.name}'
-        filename = str(vocoded_path)
+        filename = str(path.parent / f'{path.stem}')
+        filename += f'_vocoded_nbands-{self.n_bands}.wav'
         audio.write_audio(self.vocoded_signal, filename, self.sample_rate)
         return filename
 
