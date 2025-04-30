@@ -1,10 +1,14 @@
 import audio
+import argparse
+import copy
 from matplotlib import pyplot as plt
+import multiprocessing 
 import numpy as np
 from pathlib import Path
 import plot
 import scipy
 import signal_processing as sp
+import time
 
 '''
 This code implements a vocoder, which is a device that encodes speech signals
@@ -100,7 +104,8 @@ bands = [two_bands, three_bands, four_bands, five_bands, six_bands]
 
 class Vocoder:
     def __init__(self, signal = None, sample_rate = 16000, frequencies = None,
-        filename = None, butterworth_order = 4, match_rms = True,):
+        filename = None, butterworth_order = 4, match_rms = True,
+        output_dir = '',):
         if signal is None and filename is None:
             raise ValueError('Either signal or filename must be provided')
         if filename: 
@@ -108,6 +113,7 @@ class Vocoder:
         self.filename = filename
         self.butterworth_order = butterworth_order
         self.match_rms = match_rms
+        self.output_dir = output_dir
         self.path = Path(filename) if filename else None
         self.signal = signal
         self.white_noise = sp.white_noise(n_samples=len(signal))
@@ -265,7 +271,11 @@ class Vocoder:
             raise ValueError('Either filename or self.filename must be provided')
         if filename is None: filename = self.filename
         path = Path(filename)
-        filename = str(path.parent / f'{path.stem}')
+        if self.output_dir: 
+            directory = Path(self.output_dir)
+            if not directory.exists(): directory.mkdir(parents=True)
+        else: directory = path.parent
+        filename = str(directory / f'{path.stem}')
         filename += f'_vocoded_nbands-{self.n_bands}.wav'
         audio.write_audio(self.vocoded_signal, filename, self.sample_rate)
         return filename
@@ -367,4 +377,83 @@ class Frequency_band:
             x = sp.match_rms_by_window(self.filtered_signal, x)
         self._vocoded_signal = x
         return self._vocoded_signal
+
+def handle_nbands(args):
+    if args.nbands == 2:
+        return two_bands
+    elif args.nbands == 3:
+        return three_bands
+    elif args.nbands == 4:
+        return four_bands
+    elif args.nbands == 5:
+        return five_bands
+    elif args.nbands == 6:
+        return six_bands
+    else:
+        raise ValueError('Invalid number of bands')
+
+
+def handle_frequencies(args):
+    if not args.frequencies:
+        return handle_nbands(args)
+    return np.array(args.frequencies)
+
+def handle_args(args):
+    if not args.input_dir and not args.filename:
+        raise ValueError('Either input_dir or filename must be provided')
+    if not args.input_dir:
+        return handle_filename(args.filename, args)
+    fn = list(Path(args.input_dir).glob('*.wav'))
+    if not fn:
+        raise ValueError('No wav files found in input_dir')
+    print(f'vocoding {len(fn)} .wav files in input_dir')
+    if args.nprocess == 1:
+        for filename in fn:
+            args.filename = filename
+            handle_filename(args)
+        return
+    argss = [copy.copy(args) for _ in range(len(fn))]
+    for i, filename in enumerate(fn):
+        argss[i].filename = filename
+    print(argss, len(argss))
+    with multiprocessing.Pool(args.nprocess) as pool:
+        pool.map(handle_filename, argss)
+    
+        
+def handle_filename(args):
+    frequencies = handle_frequencies(args)
+    vocoder = Vocoder(filename=args.filename, sample_rate=args.sample_rate,
+        butterworth_order=args.butterworth_order, match_rms=args.match_rms,
+        frequencies=frequencies, output_dir=args.output_dir)
+    print(vocoder)
+    vocoder.write_vocoded()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Vocoder')
+    parser.add_argument('--filename', type=str, help='audio file to vocode')
+    parser.add_argument('--sample_rate', type=int, default=16000,
+        help='sample rate of the audio file')
+    parser.add_argument('--output_dir', type=str, default='',
+        help='output directory for the vocoded file')
+    parser.add_argument('--butterworth_order', type=int, default=4,
+        help='order of the butterworth filter')
+    parser.add_argument('--match_rms', action='store_true',
+        help='match the rms of the vocoded signal to the original signal')
+    parser.add_argument('--nbands', type=int, default=6,
+        help='number of frequency bands to use')
+    parser.add_argument('--frequencies', type=int, nargs='+',
+        default=None, 
+        help='frequencies to use for the vocoder e.g. 100 300 1000')
+    parser.add_argument('--input_dir', type=str, default='',
+        help='input directory for the audio files')
+    parser.add_argument('--nprocess', type=int, default=1,
+        help='number of processes to use for vocoding')
+    args = parser.parse_args()
+    args1 = copy.copy(args)
+    args1.filename = None
+    print(args,type(args))
+    print(args1,type(args1))
+    start = time.time()
+    handle_args(args)
+    print(f'Elapsed time: {time.time() - start:.2f} seconds')
         
