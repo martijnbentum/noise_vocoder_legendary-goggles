@@ -67,7 +67,7 @@ carrier signal
     alternative carrier signal could be a sine wave
 
 references:
-https://www.mrc-cbu.cam.ac.uk/personal/matt.davis/vocode/
+(0) https://www.mrc-cbu.cam.ac.uk/personal/matt.davis/vocode/
 https://github.com/mdhk/speech-training/blob/main/scripts/vocoder.py
 https://github.com/achabotl/vocoder/blob/master/Vocoder.ipynb
 
@@ -86,8 +86,14 @@ noise-vocoded speech
 https://pmc.ncbi.nlm.nih.gov/articles/PMC2730710/pdf/JASMAN-000126-000792_1.pdf
 '''
 
+#based on (4)
+two_bands = np.array([100, 1005,5000])
+three_bands = np.array([100, 548, 1755, 5000])
+four_bands = np.array([100, 392, 1005, 2294, 5000])
+five_bands = np.array([100, 315, 705, 1410, 2687, 5000])
 
 
+# based on (0)
 six_bands= np.array([50,229,558,1161,2265,4290,7999])
 
 class Vocoder:
