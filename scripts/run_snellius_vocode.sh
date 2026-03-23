@@ -49,7 +49,7 @@ echo "output_dir: $output_dir"
 echo "venv: $env_dir"
 echo "==========================="
 
-python -m vocoder \
+srun python -m vocoder \
     --input_dir "$input_dir" \
     --output_dir "$output_dir" \
     --nprocess "$nprocess" \
