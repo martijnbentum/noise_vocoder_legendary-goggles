@@ -1,9 +1,10 @@
 import argparse
 import copy
-from pathlib import Path
-import time
+import json
 import multiprocessing
 import os
+from pathlib import Path
+import time
 
 import numpy as np
 
@@ -91,17 +92,36 @@ noise-vocoded speech
 https://pmc.ncbi.nlm.nih.gov/articles/PMC2730710/pdf/JASMAN-000126-000792_1.pdf
 '''
 
-#based on (4)
-two_bands = np.array([100, 1005,5000])
-three_bands = np.array([100, 548, 1755, 5000])
-four_bands = np.array([100, 392, 1005, 2294, 5000])
-five_bands = np.array([100, 315, 705, 1410, 2687, 5000])
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FREQUENCY_CONFIG_FILENAME = REPO_ROOT / 'config' / 'frequency_bands.json'
 
 
-# based on (0)
-six_bands= np.array([50,229,558,1161,2265,4290,7999])
+def load_frequency_config(filename = FREQUENCY_CONFIG_FILENAME):
+    '''Load standard frequency bands from JSON config.'''
+    with Path(filename).open() as fin:
+        return json.load(fin)
 
-bands = [two_bands, three_bands, four_bands, five_bands, six_bands]
+
+def get_standard_bands(
+    n_bands = None,
+    family = 'default_family',
+    key = None,
+    filename = FREQUENCY_CONFIG_FILENAME,
+):
+    '''Return a standard band definition from config.'''
+    config = load_frequency_config(filename)
+    if family not in config:
+        raise ValueError(f'Unknown frequency family: {family}')
+    family_config = config[family]
+    if key is None:
+        if n_bands is None:
+            raise ValueError('Either n_bands or key must be provided')
+        key = f'{n_bands}_band'
+    if key not in family_config:
+        raise ValueError(
+            f'Unknown frequency band key for {family}: {key}'
+        )
+    return np.array(family_config[key])
 
 class Vocoder:
     def __init__(self, signal = None, sample_rate = 16000, frequencies = None,
@@ -125,8 +145,10 @@ class Vocoder:
         self.duration = len(signal) / sample_rate
         self.info = audio.audio_info(filename) if filename else None
         self._check_info()
-        if frequencies is None: self.frequencies = six_bands
-        else: self.frequencies = frequencies
+        if frequencies is None:
+            self.frequencies = get_standard_bands(6)
+        else:
+            self.frequencies = frequencies
         self._filter()
         self.signal_intensity = sp.compute_praat_intensity(self.signal)
         self.vocoded_intensity = sp.compute_praat_intensity(self.vocoded_signal)
@@ -385,18 +407,11 @@ class Frequency_band:
         return self._vocoded_signal
 
 def handle_nbands(args):
-    if args.nbands == 2:
-        return two_bands
-    elif args.nbands == 3:
-        return three_bands
-    elif args.nbands == 4:
-        return four_bands
-    elif args.nbands == 5:
-        return five_bands
-    elif args.nbands == 6:
-        return six_bands
-    else:
-        raise ValueError('Invalid number of bands')
+    return get_standard_bands(
+        n_bands=args.nbands,
+        family=getattr(args, 'frequency_family', 'default_family'),
+        key=getattr(args, 'frequency_key', None),
+    )
 
 
 def handle_frequencies(args):
@@ -448,6 +463,11 @@ def build_parser():
         help='match the rms of the vocoded signal to the original signal')
     parser.add_argument('--nbands', type=int, default=6,
         help='number of frequency bands to use')
+    parser.add_argument('--frequency_family', type=str,
+        default='default_family',
+        help='frequency family from config to use')
+    parser.add_argument('--frequency_key', type=str, default=None,
+        help='frequency band key from config to use, e.g. 8_band')
     parser.add_argument('--frequencies', type=int, nargs='+',
         default=None, 
         help='frequencies to use for the vocoder e.g. 100 300 1000')

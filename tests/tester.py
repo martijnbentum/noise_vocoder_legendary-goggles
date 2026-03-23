@@ -50,6 +50,58 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(vocoder.filename, 'examples/1.wav')
         self.assertEqual(vocoder.path, core.Path('examples/1.wav'))
 
+    def test_handle_nbands_uses_default_family_config(self):
+        args = SimpleNamespace(
+            nbands=6,
+            frequency_family='default_family',
+            frequency_key=None,
+        )
+        bands = core.handle_nbands(args)
+        np.testing.assert_array_equal(
+            bands,
+            np.array([50, 229, 558, 1161, 2265, 4290, 7999]),
+        )
+
+    def test_handle_nbands_uses_speech_weighted_key(self):
+        args = SimpleNamespace(
+            nbands=8,
+            frequency_family='speech_weighted',
+            frequency_key='8_band',
+        )
+        bands = core.handle_nbands(args)
+        np.testing.assert_array_equal(
+            bands,
+            np.array([50, 180, 350, 600, 950, 1450, 2200, 3500, 7999]),
+        )
+
+    def test_vocoder_defaults_to_default_family_six_band(self):
+        with mock.patch(
+            'vocoder.core.audio.load_audio_file',
+            return_value=(np.array([0.1, 0.2, 0.3]), 16000),
+        ):
+            with mock.patch(
+                'vocoder.core.audio.audio_info',
+                return_value={
+                    'filename': 'examples/1.wav',
+                    'n_channels': 1,
+                    'sample_rate': 16000,
+                    'duration': 3 / 16000,
+                },
+            ):
+                with mock.patch(
+                    'vocoder.core.sp.butterworth_bandpass_filter',
+                    return_value=np.array([0.1, 0.2, 0.3]),
+                ):
+                    with mock.patch(
+                        'vocoder.core.sp.extract_envelope',
+                        return_value=np.array([0.1, 0.2, 0.3]),
+                    ):
+                        vocoder = core.Vocoder(filename='examples/1.wav')
+        np.testing.assert_array_equal(
+            vocoder.frequencies,
+            np.array([50, 229, 558, 1161, 2265, 4290, 7999]),
+        )
+
 
 class FrequencyBandTests(unittest.TestCase):
     def test_vocoded_signal_uses_envelope_times_band_limited_noise(self):

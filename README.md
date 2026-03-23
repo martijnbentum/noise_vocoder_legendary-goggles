@@ -73,3 +73,15 @@ The code currently depends on these Python packages:
 ## Git Hook
 This repo includes a tracked `pre-commit` hook in `.githooks/pre-commit`
 that bumps the patch version in `pyproject.toml` on every commit.
+
+## Frequency Config
+Standard frequency bands now live in
+[`config/frequency_bands.json`](/Users/martijn.bentum/vocoder/repo/config/frequency_bands.json).
+The CLI uses the `default_family` bands by default and also supports
+`--frequency_family` and `--frequency_key`.
+
+## Snellius Scripts
+Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/scripts):
+- `build_snellius_env.sh` creates the Python environment with the required
+  module stack.
+- `sbatch_*.sh` submits the standard 64-core vocoding jobs.
