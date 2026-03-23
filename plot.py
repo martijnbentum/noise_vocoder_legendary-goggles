@@ -83,7 +83,8 @@ def plot_stacked_sigals(signals, names, envelopes = None, title = '',
         show_legend = True if i == 0 else False
         show_xaxis = True if i == len(signals) - 1 else False
         show_yaxis = True if i == len(signals) - 1 else False
-        plot_signal(signal, sample_rate, title=names[i], envelope=envelopes[i],
+        envelope = envelopes[i] if envelopes is not None else None
+        plot_signal(signal, sample_rate, title=names[i], envelope=envelope,
             ax=axes[i], show_legend = show_legend, show_xaxis = show_xaxis,
             show_yaxis = show_yaxis, ylim = ylim, )
     plt.suptitle(title)
@@ -101,8 +102,9 @@ def plot_grid_signals(left_side_signals, right_side_signals, left_side_names,
         show_xaxis = True if i == len(left_side_signals) - 1 else False
         show_yaxis = True if i == len(left_side_signals) - 1 else False
         ax = axes[i][0] if len(left_side_signals) > 1 else axes[0]
+        envelope = left_side_envelopes[i] if left_side_envelopes is not None else None
         plot_signal(signal, sample_rate, title=left_side_names[i], 
-            envelope=left_side_envelopes[i], ax=ax, 
+            envelope=envelope, ax=ax, 
             show_legend = show_legend, show_xaxis = show_xaxis,
             show_yaxis = show_yaxis, ylim = ylim)
     for i, signal in enumerate(right_side_signals):
@@ -110,12 +112,14 @@ def plot_grid_signals(left_side_signals, right_side_signals, left_side_names,
         show_xaxis = True if i == len(right_side_signals) - 1 else False
         show_yaxis = True if i == len(right_side_signals) - 1 else False
         ax = axes[i][1] if len(left_side_signals) > 1 else axes[1]
+        envelope = (
+            right_side_envelopes[i] if right_side_envelopes is not None else None
+        )
         plot_signal(signal, sample_rate, title=right_side_names[i], 
-            envelope=right_side_envelopes[i], ax=ax, 
+            envelope=envelope, ax=ax, 
             show_legend = show_legend, show_xaxis = show_xaxis,
             show_yaxis = show_yaxis, ylim = ylim)
     plt.suptitle(title)
     plt.tight_layout()
     plt.show()
-
 

@@ -172,7 +172,7 @@ class Vocoder:
             m += f'{self.info["sample_rate"]} != {self.sample_rate}'
             m += 'librosa resampled the signal'
         if self.info['n_channels'] != 1:
-            raise NotImplemented('Only mono files are supported')
+            raise NotImplementedError('Only mono files are supported')
         self.duration_delta =  abs(self.info['duration'] - self.duration)
         if self.duration_delta > 0.1:
             m = f'Error: duration mismatch: '
@@ -303,7 +303,7 @@ class Frequency_band:
             order = self.parent.butterworth_order)
         self.filtered_signal = y
 
-    def _extract_envelope(self, cutoff=30, order=2, sample_rate=16000, 
+    def _extract_envelope(self, cutoff=30, order=2, sample_rate=None, 
         smoothing = True):
         '''extract the amplitude envelope of a signal using a low-pass filter.
         x                  the signal
@@ -313,6 +313,8 @@ class Frequency_band:
         smoothing          whether to apply a moving average to the envelope
                             to smooth it 
         '''
+        if sample_rate is None:
+            sample_rate = self.sample_rate
         self.envelope = sp.extract_envelope(self.filtered_signal, cutoff, order, 
             sample_rate, smoothing)
 
@@ -370,9 +372,10 @@ class Frequency_band:
     def vocoded_signal(self):
         '''return the vocoded signal'''
         if hasattr(self, '_vocoded_signal'): return self._vocoded_signal
-        x = self.filtered_signal * self.white_noise
-        x = sp.butterworth_bandpass_filter(x,
+        carrier = sp.butterworth_bandpass_filter(
+            self.white_noise,
             self.low_frequency, self.high_frequency, self.parent.sample_rate)
+        x = self.envelope * carrier
         if self.parent.match_rms:
             x = sp.match_rms_by_window(self.filtered_signal, x)
         self._vocoded_signal = x
@@ -402,7 +405,7 @@ def handle_args(args):
     if not args.input_dir and not args.filename:
         raise ValueError('Either input_dir or filename must be provided')
     if not args.input_dir:
-        return handle_filename(args.filename, args)
+        return handle_filename(args)
     fn = list(Path(args.input_dir).glob('*.wav'))
     if not fn:
         raise ValueError('No wav files found in input_dir')
@@ -449,10 +452,6 @@ if __name__ == '__main__':
     parser.add_argument('--nprocess', type=int, default=1,
         help='number of processes to use for vocoding')
     args = parser.parse_args()
-    args1 = copy.copy(args)
-    args1.filename = None
-    print(args,type(args))
-    print(args1,type(args1))
     start = time.time()
     handle_args(args)
     print(f'Elapsed time: {time.time() - start:.2f} seconds')
