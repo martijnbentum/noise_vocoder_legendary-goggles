@@ -1,17 +1,9 @@
-import sys
 import tempfile
-import types
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
-
-if 'sounddevice' not in sys.modules:
-    sys.modules['sounddevice'] = types.SimpleNamespace(
-        play=mock.Mock(),
-        wait=mock.Mock(),
-    )
 
 from vocoder import audio
 from vocoder import core
@@ -213,11 +205,22 @@ class PlotTests(unittest.TestCase):
 
 class AudioTests(unittest.TestCase):
     def test_play_audio_calls_sounddevice(self):
-        with mock.patch.object(audio.sd, 'play') as play:
-            with mock.patch.object(audio.sd, 'wait') as wait:
+        fake_sd = mock.Mock()
+        with mock.patch('vocoder.audio._load_sounddevice', return_value=fake_sd):
+            audio.play_audio(np.array([0.0]))
+        fake_sd.play.assert_called_once()
+        fake_sd.wait.assert_called_once()
+
+    def test_play_audio_raises_clear_error_without_portaudio(self):
+        with mock.patch(
+            'vocoder.audio._load_sounddevice',
+            side_effect=RuntimeError('Audio playback requires sounddevice'),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                'Audio playback requires sounddevice',
+            ):
                 audio.play_audio(np.array([0.0]))
-        play.assert_called_once()
-        wait.assert_called_once()
 
 
 if __name__ == '__main__':

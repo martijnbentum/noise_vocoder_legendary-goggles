@@ -1,6 +1,17 @@
 import librosa
-import sounddevice as sd
 import soundfile as sf
+
+def _load_sounddevice():
+    '''Import sounddevice only when playback is requested.'''
+    try:
+        import sounddevice as sd
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            'Audio playback requires sounddevice with a working PortAudio '
+            'installation.'
+        ) from exc
+    return sd
+
 
 def load_audio_file(file_path, sample_rate = 16000, start = 0.0, end = None):
     '''load an audio file and return the signal and sample rate'''
@@ -32,6 +43,7 @@ def audio_info(filename):
 
 def play_audio(signal, sample_rate = 16000):
     '''play audio signal'''
+    sd = _load_sounddevice()
     sd.play(signal, sample_rate)
     sd.wait()
 
