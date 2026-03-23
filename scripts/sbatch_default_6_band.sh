@@ -9,9 +9,9 @@
 
 set -eu
 
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
 
-"$script_dir/run_snellius_vocode.sh" \
+"$repo_root/scripts/run_snellius_vocode.sh" \
     default_family \
     6_band \
     6 \
