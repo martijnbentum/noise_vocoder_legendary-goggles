@@ -72,3 +72,7 @@ The code currently depends on these Python packages:
 - `scipy`
 - `sounddevice`
 - `soundfile`
+
+## Git Hook
+This repo includes a tracked `pre-commit` hook in `.githooks/pre-commit`
+that bumps the patch version in `pyproject.toml` on every commit.
