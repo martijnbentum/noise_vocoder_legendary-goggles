@@ -576,10 +576,10 @@ def handle_filename(args):
         'worker_pid': worker_pid,
         'input_filename': str(args.filename),
         'output_filename': str(output_filename),
-        'elapsed_seconds': round(time.time() - start_time, 4),
-        'signal_intensity_db': round(vocoder.signal_intensity, 4),
-        'vocoded_intensity_db': round(vocoder.vocoded_intensity, 4),
-        'n_bands': vocoder.n_bands,
+        'elapsed_seconds': float(round(time.time() - start_time, 4)),
+        'signal_intensity_db': float(round(vocoder.signal_intensity, 4)),
+        'vocoded_intensity_db': float(round(vocoder.vocoded_intensity, 4)),
+        'n_bands': int(vocoder.n_bands),
     }
 
 
