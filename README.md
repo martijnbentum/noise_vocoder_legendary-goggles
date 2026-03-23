@@ -9,9 +9,6 @@ noise-vocoded output, and plotting the result.
 pip install git+https://git@github.com/martijnbentum/vocoder.git
 ```
 
-System dependency:
-- `sox` is required for `sox --i` metadata inspection.
-
 ## Layout
 ```text
 .

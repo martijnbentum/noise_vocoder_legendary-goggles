@@ -30,27 +30,23 @@ class HandleArgsTests(unittest.TestCase):
             return_value=(np.array([0.1, 0.2, 0.3]), 16000),
         ):
             with mock.patch(
-                'vocoder.core.audio.soxi_info',
-                return_value='ignored',
+                'vocoder.core.audio.audio_info',
+                return_value={
+                    'filename': 'examples/1.wav',
+                    'n_channels': 1,
+                    'sample_rate': 16000,
+                    'duration': 3 / 16000,
+                },
             ):
                 with mock.patch(
-                    'vocoder.core.audio.soxinfo_to_dict',
-                    return_value={
-                        'filename': 'examples/1.wav',
-                        'n_channels': 1,
-                        'sample_rate': 16000,
-                        'duration': 3 / 16000,
-                    },
+                    'vocoder.core.sp.butterworth_bandpass_filter',
+                    return_value=np.array([0.1, 0.2, 0.3]),
                 ):
                     with mock.patch(
-                        'vocoder.core.sp.butterworth_bandpass_filter',
+                        'vocoder.core.sp.extract_envelope',
                         return_value=np.array([0.1, 0.2, 0.3]),
                     ):
-                        with mock.patch(
-                            'vocoder.core.sp.extract_envelope',
-                            return_value=np.array([0.1, 0.2, 0.3]),
-                        ):
-                            vocoder = core.Vocoder('examples/1.wav')
+                        vocoder = core.Vocoder('examples/1.wav')
         self.assertEqual(vocoder.filename, 'examples/1.wav')
         self.assertEqual(vocoder.path, core.Path('examples/1.wav'))
 

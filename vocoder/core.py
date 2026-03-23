@@ -123,8 +123,7 @@ class Vocoder:
         self.white_noise = sp.white_noise(n_samples=len(signal))
         self.sample_rate = sample_rate
         self.duration = len(signal) / sample_rate
-        self.info = audio.soxinfo_to_dict(
-            audio.soxi_info(filename)) if filename else None
+        self.info = audio.audio_info(filename) if filename else None
         self._check_info()
         if frequencies is None: self.frequencies = six_bands
         else: self.frequencies = frequencies
