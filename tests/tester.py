@@ -1,19 +1,27 @@
+import sys
+import types
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
 
-import audio
-import plot
-import vocoder
+if 'sounddevice' not in sys.modules:
+    sys.modules['sounddevice'] = types.SimpleNamespace(
+        play=mock.Mock(),
+        wait=mock.Mock(),
+    )
+
+from vocoder import audio
+from vocoder import core
+from vocoder import plot
 
 
 class HandleArgsTests(unittest.TestCase):
     def test_single_file_path_calls_handle_filename_with_args_only(self):
         args = SimpleNamespace(input_dir='', filename='demo.wav')
-        with mock.patch('vocoder.handle_filename') as handle_filename:
-            vocoder.handle_args(args)
+        with mock.patch('vocoder.core.handle_filename') as handle_filename:
+            core.handle_args(args)
         handle_filename.assert_called_once_with(args)
 
 
@@ -27,17 +35,17 @@ class FrequencyBandTests(unittest.TestCase):
             match_rms=False,
         )
         with mock.patch(
-            'vocoder.sp.butterworth_bandpass_filter',
+            'vocoder.core.sp.butterworth_bandpass_filter',
             side_effect=[
                 np.array([0.5, 0.5, 0.5]),
                 np.array([10.0, 20.0, 30.0]),
             ],
         ) as bandpass:
             with mock.patch(
-                'vocoder.sp.extract_envelope',
+                'vocoder.core.sp.extract_envelope',
                 return_value=np.array([2.0, 3.0, 4.0]),
             ):
-                band = vocoder.Frequency_band(100, 200, parent)
+                band = core.Frequency_band(100, 200, parent)
                 np.testing.assert_allclose(
                     band.vocoded_signal,
                     [20.0, 60.0, 120.0],
@@ -50,11 +58,11 @@ class FrequencyBandTests(unittest.TestCase):
 
 class PlotTests(unittest.TestCase):
     def test_plot_stacked_signals_accepts_missing_envelopes(self):
-        with mock.patch('plot.plt.subplots') as subplots, \
-            mock.patch('plot.plot_signal') as plot_signal, \
-            mock.patch('plot.plt.show'), \
-            mock.patch('plot.plt.tight_layout'), \
-            mock.patch('plot.plt.suptitle'):
+        with mock.patch('vocoder.plot.plt.subplots') as subplots, \
+            mock.patch('vocoder.plot.plot_signal') as plot_signal, \
+            mock.patch('vocoder.plot.plt.show'), \
+            mock.patch('vocoder.plot.plt.tight_layout'), \
+            mock.patch('vocoder.plot.plt.suptitle'):
             subplots.return_value = (mock.Mock(), np.array([mock.Mock(), mock.Mock()]))
             plot.plot_stacked_sigals(
                 [np.array([0.0]), np.array([1.0])],
@@ -66,11 +74,11 @@ class PlotTests(unittest.TestCase):
 
     def test_plot_grid_signals_accepts_missing_envelopes(self):
         axes = np.array([[mock.Mock(), mock.Mock()], [mock.Mock(), mock.Mock()]])
-        with mock.patch('plot.plt.subplots') as subplots, \
-            mock.patch('plot.plot_signal') as plot_signal, \
-            mock.patch('plot.plt.show'), \
-            mock.patch('plot.plt.tight_layout'), \
-            mock.patch('plot.plt.suptitle'):
+        with mock.patch('vocoder.plot.plt.subplots') as subplots, \
+            mock.patch('vocoder.plot.plot_signal') as plot_signal, \
+            mock.patch('vocoder.plot.plt.show'), \
+            mock.patch('vocoder.plot.plt.tight_layout'), \
+            mock.patch('vocoder.plot.plt.suptitle'):
             subplots.return_value = (mock.Mock(), axes)
             plot.plot_grid_signals(
                 [np.array([0.0]), np.array([1.0])],
@@ -85,10 +93,12 @@ class PlotTests(unittest.TestCase):
 
 
 class AudioTests(unittest.TestCase):
-    def test_play_audio_raises_clear_error_when_sounddevice_missing(self):
-        with mock.patch.object(audio, 'sd', None):
-            with self.assertRaisesRegex(RuntimeError, 'sounddevice is required'):
+    def test_play_audio_calls_sounddevice(self):
+        with mock.patch.object(audio.sd, 'play') as play:
+            with mock.patch.object(audio.sd, 'wait') as wait:
                 audio.play_audio(np.array([0.0]))
+        play.assert_called_once()
+        wait.assert_called_once()
 
 
 if __name__ == '__main__':

@@ -1,14 +1,14 @@
-import audio
 import argparse
 import copy
-from matplotlib import pyplot as plt
-import multiprocessing 
-import numpy as np
 from pathlib import Path
-import plot
-import scipy
-import signal_processing as sp
 import time
+import multiprocessing
+
+import numpy as np
+
+from . import audio
+from . import plot
+from . import signal_processing as sp
 
 '''
 This code implements a vocoder, which is a device that encodes speech signals
@@ -431,7 +431,8 @@ def handle_filename(args):
     print(vocoder)
     vocoder.write_vocoded()
 
-if __name__ == '__main__':
+
+def build_parser():
     parser = argparse.ArgumentParser(description='Vocoder')
     parser.add_argument('--filename', type=str, help='audio file to vocode')
     parser.add_argument('--sample_rate', type=int, default=16000,
@@ -451,8 +452,15 @@ if __name__ == '__main__':
         help='input directory for the audio files')
     parser.add_argument('--nprocess', type=int, default=1,
         help='number of processes to use for vocoding')
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
     start = time.time()
     handle_args(args)
     print(f'Elapsed time: {time.time() - start:.2f} seconds')
-        
+
+
+if __name__ == '__main__':
+    main()

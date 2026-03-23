@@ -1,0 +1,28 @@
+[build-system]
+requires = ['setuptools>=68', 'wheel']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'vocoder'
+version = '0.1.0'
+description = 'Noise vocoder utilities for loading, vocoding, plotting, and writing speech audio.'
+readme = 'README.md'
+requires-python = '>=3.10'
+license = {file = 'LICENSE'}
+authors = [
+    {name = 'Martijn Bentum'},
+]
+dependencies = [
+    'librosa>=0.11',
+    'matplotlib>=3.10',
+    'numpy>=2.1',
+    'scipy>=1.15',
+    'sounddevice>=0.5',
+    'soundfile>=0.13',
+]
+
+[project.scripts]
+vocoder = 'vocoder.core:main'
+
+[tool.setuptools.packages.find]
+include = ['vocoder']

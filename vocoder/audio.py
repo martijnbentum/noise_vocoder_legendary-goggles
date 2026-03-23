@@ -1,11 +1,7 @@
 import librosa
+import sounddevice as sd
 import soundfile as sf
 import subprocess
-
-try:
-    import sounddevice as sd
-except ModuleNotFoundError:
-    sd = None
 
 def load_audio_file(file_path, sample_rate = 16000, start = 0.0, end = None):
     '''load an audio file and return the signal and sample rate'''
@@ -46,10 +42,6 @@ def soxinfo_to_dict(soxinfo):
 
 def play_audio(signal, sample_rate = 16000):
     '''play audio signal'''
-    if sd is None:
-        raise RuntimeError(
-            'sounddevice is required for audio playback but is not installed'
-        )
     sd.play(signal, sample_rate)
     sd.wait()
 

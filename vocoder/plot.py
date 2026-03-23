@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
-import signal_processing as sp
+
+from . import signal_processing as sp
 
 def compare_spectrogram(x, y, sample_rate = 16000, 
     names = ['Original', 'Modified']):
@@ -122,4 +123,3 @@ def plot_grid_signals(left_side_signals, right_side_signals, left_side_names,
     plt.suptitle(title)
     plt.tight_layout()
     plt.show()
-
