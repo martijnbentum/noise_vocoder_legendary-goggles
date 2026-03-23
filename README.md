@@ -63,8 +63,9 @@ python -m vocoder --input_dir examples --nbands 4 --nprocess 2
 
 For large directory runs, the CLI now:
 - preserves the input subdirectory layout inside `--output_dir`
-- writes per-file records to `vocoder_metadata.jsonl` in `--output_dir`
 - prints compact progress lines instead of one verbose block per file
+- can optionally write per-file records to a JSONL metadata file with
+  `--metadata_filename batch.jsonl`
 
 ## Dependencies
 The code currently depends on these Python packages:

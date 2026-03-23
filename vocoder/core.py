@@ -485,10 +485,14 @@ def log_progress(processed, total, start_time, last_result = None):
     '''Print a compact batch progress line.'''
     elapsed = time.time() - start_time
     rate = processed / elapsed if elapsed > 0 else 0.0
+    remaining = max(total - processed, 0)
+    eta_seconds = remaining / rate if rate > 0 else None
     message = (
         f'progress: {processed}/{total} files '
         f'({rate:.2f} files/s, elapsed={elapsed:.1f}s)'
     )
+    if eta_seconds is not None:
+        message += f' eta={eta_seconds / 3600:.2f}h'
     if last_result:
         message += f' latest={Path(last_result["output_filename"]).name}'
     print(message, flush=True)
@@ -538,7 +542,7 @@ def handle_args(args):
     fn = sorted(Path(args.input_dir).rglob('*.wav'))
     if not fn:
         raise ValueError('No wav files found in input_dir')
-    print(f'vocoding {len(fn)} .wav files in input_dir')
+    print(f'vocoding {len(fn)} .wav files in input_dir', flush=True)
     print(
         'parallel summary:',
         f'nprocess={args.nprocess}',
@@ -546,6 +550,7 @@ def handle_args(args):
         f'key={getattr(args, "frequency_key", None)}',
         f'nbands={args.nbands}',
         f'progress_every={getattr(args, "progress_every", 100)}',
+        flush=True,
     )
     if args.nprocess == 1:
         for filename in fn:
@@ -608,7 +613,7 @@ def build_parser():
     parser.add_argument('--worker_max_tasks', type=int, default=100,
         help='restart worker processes after this many files')
     parser.add_argument('--metadata_filename', type=str,
-        default='vocoder_metadata.jsonl',
+        default='',
         help='jsonl file for per-file batch metadata, relative to output_dir')
     return parser
 

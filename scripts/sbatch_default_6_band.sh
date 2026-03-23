@@ -15,4 +15,4 @@ repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
     default_family \
     6_band \
     6 \
-    /projects/0/prjs1489/data/spidr/vocoded_bands-6_spidr/wav
+    /projects/0/prjs1489/data/vocoded_nband-6_spider_nl/wav/
