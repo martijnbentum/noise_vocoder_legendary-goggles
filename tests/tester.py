@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import types
 import unittest
 from types import SimpleNamespace
@@ -101,6 +102,46 @@ class HandleArgsTests(unittest.TestCase):
             vocoder.frequencies,
             np.array([50, 229, 558, 1161, 2265, 4290, 7999]),
         )
+
+    def test_prepare_output_dir_creates_missing_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = core.Path(temp_dir) / 'nested' / 'wav'
+            created = core.prepare_output_dir(output_dir)
+        self.assertEqual(created, output_dir)
+
+    def test_prepare_output_dir_fails_if_wavs_exist(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = core.Path(temp_dir) / 'wav'
+            output_dir.mkdir()
+            (output_dir / 'existing.wav').write_bytes(b'RIFF')
+            with self.assertRaisesRegex(
+                ValueError,
+                'already contains wav files',
+            ):
+                core.prepare_output_dir(output_dir)
+
+    def test_handle_args_searches_input_dir_recursively(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = core.Path(temp_dir) / 'input'
+            nested_dir = input_dir / 'nested'
+            nested_dir.mkdir(parents=True)
+            wav_file = nested_dir / 'a.wav'
+            wav_file.write_bytes(b'RIFF')
+            output_dir = core.Path(temp_dir) / 'output'
+            args = SimpleNamespace(
+                input_dir=str(input_dir),
+                output_dir=str(output_dir),
+                filename='',
+                nprocess=1,
+                nbands=6,
+                frequency_family='default_family',
+                frequency_key=None,
+            )
+            with mock.patch('vocoder.core.handle_filename') as handle_filename:
+                core.handle_args(args)
+        self.assertEqual(handle_filename.call_count, 1)
+        forwarded_args = handle_filename.call_args[0][0]
+        self.assertEqual(forwarded_args.filename, wav_file)
 
 
 class FrequencyBandTests(unittest.TestCase):

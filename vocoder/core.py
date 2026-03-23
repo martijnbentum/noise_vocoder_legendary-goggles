@@ -419,12 +419,28 @@ def handle_frequencies(args):
         return handle_nbands(args)
     return np.array(args.frequencies)
 
+
+def prepare_output_dir(output_dir):
+    '''Create output_dir if needed and fail if it already has wav files.'''
+    if not output_dir:
+        return None
+    directory = Path(output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    existing_wavs = sorted(directory.rglob('*.wav'))
+    if existing_wavs:
+        raise ValueError(
+            f'Output directory already contains wav files: {directory}'
+        )
+    return directory
+
+
 def handle_args(args):
     if not args.input_dir and not args.filename:
         raise ValueError('Either input_dir or filename must be provided')
+    prepare_output_dir(getattr(args, 'output_dir', ''))
     if not args.input_dir:
         return handle_filename(args)
-    fn = list(Path(args.input_dir).glob('*.wav'))
+    fn = sorted(Path(args.input_dir).rglob('*.wav'))
     if not fn:
         raise ValueError('No wav files found in input_dir')
     print(f'vocoding {len(fn)} .wav files in input_dir')

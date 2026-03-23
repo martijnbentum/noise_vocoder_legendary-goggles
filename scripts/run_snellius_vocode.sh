@@ -32,7 +32,7 @@ source "$env_dir/bin/activate"
 mkdir -p "$output_dir"
 export OMP_NUM_THREADS=1
 
-input_count=$(find "$input_dir" -maxdepth 1 -name '*.wav' | wc -l | tr -d ' ')
+input_count=$(find "$input_dir" -type f -name '*.wav' | wc -l | tr -d ' ')
 
 echo "=== Snellius vocoder job ==="
 echo "host: $(hostname)"
