@@ -61,6 +61,11 @@ Run the CLI on a directory:
 python -m vocoder --input_dir examples --nbands 4 --nprocess 2
 ```
 
+For large directory runs, the CLI now:
+- preserves the input subdirectory layout inside `--output_dir`
+- writes per-file records to `vocoder_metadata.jsonl` in `--output_dir`
+- prints compact progress lines instead of one verbose block per file
+
 ## Dependencies
 The code currently depends on these Python packages:
 - `librosa`
@@ -96,3 +101,6 @@ Example submissions:
 ./scripts/submit_default_16_band.sh
 ./scripts/submit_speech_weighted_8_band.sh
 ```
+
+The Snellius runner uses unbuffered Python output so progress appears in the
+Slurm `.out` file during the job.

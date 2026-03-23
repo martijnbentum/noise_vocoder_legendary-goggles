@@ -135,6 +135,46 @@ class HandleArgsTests(unittest.TestCase):
         forwarded_args = handle_filename.call_args[0][0]
         self.assertEqual(forwarded_args.filename, wav_file)
 
+    def test_get_output_filename_preserves_relative_input_structure(self):
+        filename = '/tmp/input/nested/example.wav'
+        output_filename = core.get_output_filename(
+            filename,
+            output_dir='/tmp/output',
+            input_dir='/tmp/input',
+            n_bands=6,
+        )
+        self.assertEqual(
+            output_filename,
+            '/tmp/output/nested/example_vocoded_nbands-6.wav',
+        )
+
+    def test_get_output_filename_falls_back_to_flat_output_dir(self):
+        filename = '/tmp/input/nested/example.wav'
+        output_filename = core.get_output_filename(
+            filename,
+            output_dir='/tmp/output',
+            input_dir='/tmp/other',
+            n_bands=4,
+        )
+        self.assertEqual(
+            output_filename,
+            '/tmp/output/example_vocoded_nbands-4.wav',
+        )
+
+    def test_append_metadata_writes_jsonl_records(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            metadata_path = core.Path(temp_dir) / 'meta' / 'batch.jsonl'
+            core.append_metadata(
+                metadata_path,
+                {'input_filename': 'a.wav', 'output_filename': 'b.wav'},
+            )
+            lines = metadata_path.read_text().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(
+            lines[0],
+            '{"input_filename": "a.wav", "output_filename": "b.wav"}',
+        )
+
 
 class FrequencyBandTests(unittest.TestCase):
     def test_vocoded_signal_uses_envelope_times_band_limited_noise(self):

@@ -31,6 +31,7 @@ source "$env_dir/bin/activate"
 
 mkdir -p "$output_dir"
 export OMP_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
 
 input_count=$(find "$input_dir" -type f -name '*.wav' | wc -l | tr -d ' ')
 
@@ -49,7 +50,7 @@ echo "output_dir: $output_dir"
 echo "venv: $env_dir"
 echo "==========================="
 
-srun python -m vocoder \
+srun python -u -m vocoder \
     --input_dir "$input_dir" \
     --output_dir "$output_dir" \
     --nprocess "$nprocess" \

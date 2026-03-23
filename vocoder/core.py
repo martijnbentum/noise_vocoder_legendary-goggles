@@ -126,7 +126,7 @@ def get_standard_bands(
 class Vocoder:
     def __init__(self, signal = None, sample_rate = 16000, frequencies = None,
         filename = None, butterworth_order = 4, match_rms = True,
-        output_dir = '',):
+        output_dir = '', input_dir = '',):
         if filename is None and isinstance(signal, (str, os.PathLike)):
             filename = signal
             signal = None
@@ -138,6 +138,7 @@ class Vocoder:
         self.butterworth_order = butterworth_order
         self.match_rms = match_rms
         self.output_dir = output_dir
+        self.input_dir = input_dir
         self.path = Path(filename) if filename else None
         self.signal = signal
         self.white_noise = sp.white_noise(n_samples=len(signal))
@@ -295,13 +296,12 @@ class Vocoder:
         if filename is None and self.filename is None:
             raise ValueError('Either filename or self.filename must be provided')
         if filename is None: filename = self.filename
-        path = Path(filename)
-        if self.output_dir: 
-            directory = Path(self.output_dir)
-            if not directory.exists(): directory.mkdir(parents=True)
-        else: directory = path.parent
-        filename = str(directory / f'{path.stem}')
-        filename += f'_vocoded_nbands-{self.n_bands}.wav'
+        filename = get_output_filename(
+            filename,
+            output_dir=self.output_dir,
+            input_dir=self.input_dir,
+            n_bands=self.n_bands,
+        )
         audio.write_audio(self.vocoded_signal, filename, self.sample_rate)
         return filename
 
@@ -434,6 +434,101 @@ def prepare_output_dir(output_dir):
     return directory
 
 
+def get_output_filename(
+    filename,
+    output_dir = '',
+    input_dir = '',
+    n_bands = None,
+):
+    '''Return the target filename for a vocoded file.'''
+    path = Path(filename)
+    if output_dir:
+        directory = Path(output_dir)
+        if input_dir:
+            try:
+                relative_parent = path.parent.relative_to(Path(input_dir))
+            except ValueError:
+                relative_parent = Path()
+            directory = directory / relative_parent
+        directory.mkdir(parents=True, exist_ok=True)
+    else:
+        directory = path.parent
+    output_filename = directory / path.stem
+    if n_bands is not None:
+        output_filename = f'{output_filename}_vocoded_nbands-{n_bands}.wav'
+    else:
+        output_filename = f'{output_filename}_vocoded.wav'
+    return str(output_filename)
+
+
+def get_metadata_path(output_dir, metadata_filename):
+    '''Return the metadata path for a batch run if enabled.'''
+    if not metadata_filename:
+        return None
+    metadata_path = Path(metadata_filename)
+    if metadata_path.is_absolute() or not output_dir:
+        return metadata_path
+    return Path(output_dir) / metadata_path
+
+
+def append_metadata(metadata_path, result):
+    '''Append one completed-file record to the metadata log.'''
+    if not metadata_path:
+        return
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    with metadata_path.open('a') as fout:
+        json.dump(result, fout)
+        fout.write('\n')
+
+
+def log_progress(processed, total, start_time, last_result = None):
+    '''Print a compact batch progress line.'''
+    elapsed = time.time() - start_time
+    rate = processed / elapsed if elapsed > 0 else 0.0
+    message = (
+        f'progress: {processed}/{total} files '
+        f'({rate:.2f} files/s, elapsed={elapsed:.1f}s)'
+    )
+    if last_result:
+        message += f' latest={Path(last_result["output_filename"]).name}'
+    print(message, flush=True)
+
+
+def run_parallel_batch(args, argss, total_files):
+    '''Run a batch with compact progress reporting.'''
+    start_time = time.time()
+    processed = 0
+    progress_every = max(1, getattr(args, 'progress_every', 100))
+    chunksize = max(1, min(50, total_files // (args.nprocess * 4) or 1))
+    metadata_path = get_metadata_path(
+        getattr(args, 'output_dir', ''),
+        getattr(args, 'metadata_filename', ''),
+    )
+    print(
+        'pool launch:',
+        f'workers={args.nprocess}',
+        f'chunksize={chunksize}',
+        f'maxtasksperchild={args.worker_max_tasks}',
+        flush=True,
+    )
+    if metadata_path:
+        print(f'metadata_log: {metadata_path}', flush=True)
+    with multiprocessing.Pool(
+        args.nprocess,
+        maxtasksperchild=args.worker_max_tasks,
+    ) as pool:
+        for result in pool.imap_unordered(
+            handle_filename,
+            argss,
+            chunksize=chunksize,
+        ):
+            processed += 1
+            append_metadata(metadata_path, result)
+            if processed == 1 or processed % progress_every == 0:
+                log_progress(processed, total_files, start_time, result)
+    log_progress(processed, total_files, start_time)
+
+
 def handle_args(args):
     if not args.input_dir and not args.filename:
         raise ValueError('Either input_dir or filename must be provided')
@@ -450,6 +545,7 @@ def handle_args(args):
         f'family={getattr(args, "frequency_family", "default_family")}',
         f'key={getattr(args, "frequency_key", None)}',
         f'nbands={args.nbands}',
+        f'progress_every={getattr(args, "progress_every", 100)}',
     )
     if args.nprocess == 1:
         for filename in fn:
@@ -459,22 +555,27 @@ def handle_args(args):
     argss = [copy.copy(args) for _ in range(len(fn))]
     for i, filename in enumerate(fn):
         argss[i].filename = filename
-    preview = ', '.join(path.name for path in fn[:5])
-    print(f'pool launch: workers={args.nprocess}, sample_files=[{preview}]')
-    with multiprocessing.Pool(args.nprocess) as pool:
-        pool.map(handle_filename, argss)
+    run_parallel_batch(args, argss, len(fn))
     
         
 def handle_filename(args):
+    start_time = time.time()
     worker_pid = os.getpid()
-    print(f'worker pid={worker_pid} processing {Path(args.filename).name}')
     frequencies = handle_frequencies(args)
     vocoder = Vocoder(filename=args.filename, sample_rate=args.sample_rate,
         butterworth_order=args.butterworth_order, match_rms=args.match_rms,
-        frequencies=frequencies, output_dir=args.output_dir)
-    print(vocoder)
+        frequencies=frequencies, output_dir=args.output_dir,
+        input_dir=getattr(args, 'input_dir', ''))
     output_filename = vocoder.write_vocoded()
-    print(f'worker pid={worker_pid} wrote {Path(output_filename).name}')
+    return {
+        'worker_pid': worker_pid,
+        'input_filename': str(args.filename),
+        'output_filename': str(output_filename),
+        'elapsed_seconds': round(time.time() - start_time, 4),
+        'signal_intensity_db': round(vocoder.signal_intensity, 4),
+        'vocoded_intensity_db': round(vocoder.vocoded_intensity, 4),
+        'n_bands': vocoder.n_bands,
+    }
 
 
 def build_parser():
@@ -502,6 +603,13 @@ def build_parser():
         help='input directory for the audio files')
     parser.add_argument('--nprocess', type=int, default=1,
         help='number of processes to use for vocoding')
+    parser.add_argument('--progress_every', type=int, default=100,
+        help='print one progress line after this many completed files')
+    parser.add_argument('--worker_max_tasks', type=int, default=100,
+        help='restart worker processes after this many files')
+    parser.add_argument('--metadata_filename', type=str,
+        default='vocoder_metadata.jsonl',
+        help='jsonl file for per-file batch metadata, relative to output_dir')
     return parser
 
 
