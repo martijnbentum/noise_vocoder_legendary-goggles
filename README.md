@@ -85,3 +85,5 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
 - `build_snellius_env.sh` creates the Python environment with the required
   module stack.
 - `sbatch_*.sh` submits the standard 64-core vocoding jobs.
+- Slurm stdout/stderr files are written to
+  [`slurm_out/`](/Users/martijn.bentum/vocoder/repo/slurm_out).

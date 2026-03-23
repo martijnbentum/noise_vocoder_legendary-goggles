@@ -32,6 +32,23 @@ source "$env_dir/bin/activate"
 mkdir -p "$output_dir"
 export OMP_NUM_THREADS=1
 
+input_count=$(find "$input_dir" -maxdepth 1 -name '*.wav' | wc -l | tr -d ' ')
+
+echo "=== Snellius vocoder job ==="
+echo "host: $(hostname)"
+echo "job_id: ${SLURM_JOB_ID:-none}"
+echo "job_name: ${SLURM_JOB_NAME:-none}"
+echo "cpus_per_task: ${SLURM_CPUS_PER_TASK:-unset}"
+echo "nprocess: $nprocess"
+echo "frequency_family: $family"
+echo "frequency_key: $key"
+echo "n_bands: $n_bands"
+echo "input_dir: $input_dir"
+echo "input_wav_count: $input_count"
+echo "output_dir: $output_dir"
+echo "venv: $env_dir"
+echo "==========================="
+
 python -m vocoder \
     --input_dir "$input_dir" \
     --output_dir "$output_dir" \

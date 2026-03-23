@@ -428,6 +428,13 @@ def handle_args(args):
     if not fn:
         raise ValueError('No wav files found in input_dir')
     print(f'vocoding {len(fn)} .wav files in input_dir')
+    print(
+        'parallel summary:',
+        f'nprocess={args.nprocess}',
+        f'family={getattr(args, "frequency_family", "default_family")}',
+        f'key={getattr(args, "frequency_key", None)}',
+        f'nbands={args.nbands}',
+    )
     if args.nprocess == 1:
         for filename in fn:
             args.filename = filename
@@ -436,18 +443,22 @@ def handle_args(args):
     argss = [copy.copy(args) for _ in range(len(fn))]
     for i, filename in enumerate(fn):
         argss[i].filename = filename
-    print(argss, len(argss))
+    preview = ', '.join(path.name for path in fn[:5])
+    print(f'pool launch: workers={args.nprocess}, sample_files=[{preview}]')
     with multiprocessing.Pool(args.nprocess) as pool:
         pool.map(handle_filename, argss)
     
         
 def handle_filename(args):
+    worker_pid = os.getpid()
+    print(f'worker pid={worker_pid} processing {Path(args.filename).name}')
     frequencies = handle_frequencies(args)
     vocoder = Vocoder(filename=args.filename, sample_rate=args.sample_rate,
         butterworth_order=args.butterworth_order, match_rms=args.match_rms,
         frequencies=frequencies, output_dir=args.output_dir)
     print(vocoder)
-    vocoder.write_vocoded()
+    output_filename = vocoder.write_vocoded()
+    print(f'worker pid={worker_pid} wrote {Path(output_filename).name}')
 
 
 def build_parser():

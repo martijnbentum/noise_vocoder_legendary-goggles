@@ -3,7 +3,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=64
 #SBATCH --time=24:00:00
-#SBATCH --output=slurm-%x-%j.out
+#SBATCH --output=slurm_out/%x-%j.out
+#SBATCH --error=slurm_out/%x-%j.err
 
 set -eu
 
