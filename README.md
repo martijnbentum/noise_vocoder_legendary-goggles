@@ -89,3 +89,10 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
   before calling `sbatch`.
 - Slurm stdout/stderr files are written to
   [`slurm_out/`](/Users/martijn.bentum/vocoder/repo/slurm_out).
+
+Example submissions:
+```bash
+./scripts/submit_default_6_band.sh
+./scripts/submit_default_16_band.sh
+./scripts/submit_speech_weighted_8_band.sh
+```
