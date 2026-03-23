@@ -15,4 +15,4 @@ repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
     default_family \
     4_band \
     4 \
-    /projects/0/prjs1489/data/vocoded_nband-4_spider_nl/wav/
+    /scratch-shared/mbentum1/vocoded_bands-4_spidr/wav/

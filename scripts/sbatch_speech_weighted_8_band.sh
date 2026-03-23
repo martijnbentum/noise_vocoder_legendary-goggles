@@ -15,4 +15,4 @@ repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
     speech_weighted \
     8_band \
     8 \
-    /projects/0/prjs1489/data/spidr/vocoded_bands-speech_weighted-8_spidr/wav
+    /scratch-shared/mbentum1/vocoded_bands-speech_weighted-8_spidr/wav/
