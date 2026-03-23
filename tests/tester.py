@@ -24,6 +24,36 @@ class HandleArgsTests(unittest.TestCase):
             core.handle_args(args)
         handle_filename.assert_called_once_with(args)
 
+    def test_vocoder_accepts_filename_as_first_positional_argument(self):
+        with mock.patch(
+            'vocoder.core.audio.load_audio_file',
+            return_value=(np.array([0.1, 0.2, 0.3]), 16000),
+        ):
+            with mock.patch(
+                'vocoder.core.audio.soxi_info',
+                return_value='ignored',
+            ):
+                with mock.patch(
+                    'vocoder.core.audio.soxinfo_to_dict',
+                    return_value={
+                        'filename': 'examples/1.wav',
+                        'n_channels': 1,
+                        'sample_rate': 16000,
+                        'duration': 3 / 16000,
+                    },
+                ):
+                    with mock.patch(
+                        'vocoder.core.sp.butterworth_bandpass_filter',
+                        return_value=np.array([0.1, 0.2, 0.3]),
+                    ):
+                        with mock.patch(
+                            'vocoder.core.sp.extract_envelope',
+                            return_value=np.array([0.1, 0.2, 0.3]),
+                        ):
+                            vocoder = core.Vocoder('examples/1.wav')
+        self.assertEqual(vocoder.filename, 'examples/1.wav')
+        self.assertEqual(vocoder.path, core.Path('examples/1.wav'))
+
 
 class FrequencyBandTests(unittest.TestCase):
     def test_vocoded_signal_uses_envelope_times_band_limited_noise(self):

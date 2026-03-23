@@ -3,6 +3,7 @@ import copy
 from pathlib import Path
 import time
 import multiprocessing
+import os
 
 import numpy as np
 
@@ -106,6 +107,9 @@ class Vocoder:
     def __init__(self, signal = None, sample_rate = 16000, frequencies = None,
         filename = None, butterworth_order = 4, match_rms = True,
         output_dir = '',):
+        if filename is None and isinstance(signal, (str, os.PathLike)):
+            filename = signal
+            signal = None
         if signal is None and filename is None:
             raise ValueError('Either signal or filename must be provided')
         if filename: 
