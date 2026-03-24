@@ -148,6 +148,20 @@ class HandleArgsTests(unittest.TestCase):
             '/tmp/output/nested/example_vocoded_nbands-6.wav',
         )
 
+    def test_get_output_filename_adds_shard_directory(self):
+        filename = '/tmp/input/nested/example.wav'
+        output_filename = core.get_output_filename(
+            filename,
+            output_dir='/tmp/output',
+            input_dir='/tmp/input',
+            output_shard_dir='chunk_00001',
+            n_bands=6,
+        )
+        self.assertEqual(
+            output_filename,
+            '/tmp/output/nested/chunk_00001/example_vocoded_nbands-6.wav',
+        )
+
     def test_get_output_filename_falls_back_to_flat_output_dir(self):
         filename = '/tmp/input/nested/example.wav'
         output_filename = core.get_output_filename(
@@ -159,6 +173,27 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(
             output_filename,
             '/tmp/output/example_vocoded_nbands-4.wav',
+        )
+
+    def test_build_output_shard_map_only_shards_large_directories(self):
+        filenames = [
+            core.Path('/tmp/input/flat/a.wav'),
+            core.Path('/tmp/input/flat/b.wav'),
+            core.Path('/tmp/input/flat/c.wav'),
+            core.Path('/tmp/input/nested/d.wav'),
+        ]
+        shard_map = core.build_output_shard_map(
+            filenames,
+            '/tmp/input',
+            max_files_per_output_dir=2,
+        )
+        self.assertEqual(
+            shard_map,
+            {
+                '/tmp/input/flat/a.wav': 'chunk_00000',
+                '/tmp/input/flat/b.wav': 'chunk_00000',
+                '/tmp/input/flat/c.wav': 'chunk_00001',
+            },
         )
 
     def test_append_metadata_writes_jsonl_records(self):
@@ -178,16 +213,24 @@ class HandleArgsTests(unittest.TestCase):
     def test_iter_batch_tasks_streams_lightweight_dicts(self):
         filenames = [core.Path('/tmp/input/a.wav'), core.Path('/tmp/input/b.wav')]
         worker_config = {'sample_rate': 16000, 'frequencies': [50, 100, 200]}
-        tasks = list(core.iter_batch_tasks(filenames, worker_config))
+        tasks = list(
+            core.iter_batch_tasks(
+                filenames,
+                worker_config,
+                {'/tmp/input/b.wav': 'chunk_00003'},
+            )
+        )
         self.assertEqual(
             tasks,
             [
                 {
                     'filename': '/tmp/input/a.wav',
+                    'output_shard_dir': '',
                     'worker_config': worker_config,
                 },
                 {
                     'filename': '/tmp/input/b.wav',
+                    'output_shard_dir': 'chunk_00003',
                     'worker_config': worker_config,
                 },
             ],

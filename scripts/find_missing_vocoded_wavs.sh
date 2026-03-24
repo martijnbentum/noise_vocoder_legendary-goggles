@@ -15,6 +15,7 @@ load_vocode_job "$job_name"
 input_dir="/projects/0/prjs1489/data/spidr/wav"
 output_dir="$JOB_OUTPUT_DIR"
 n_bands="$JOB_NBANDS"
+max_files_per_output_dir=10000
 
 if [ ! -d "$input_dir" ]; then
     echo "Input directory does not exist: $input_dir" >&2
@@ -32,16 +33,33 @@ mkdir -p "$archive_dir"
 timestamp=$(date +"%Y%m%d_%H%M%S")
 output_file="$archive_dir/missing_${job_name}_${timestamp}.txt"
 
+declare -A dir_totals
+declare -A dir_seen
+
+while IFS= read -r input_file; do
+    rel_path=${input_file#"$input_dir"/}
+    rel_dir=$(dirname "$rel_path")
+    dir_totals["$rel_dir"]=$(( ${dir_totals["$rel_dir"]:-0} + 1 ))
+done < <(find "$input_dir" -type f -name '*.wav' | sort)
+
 while IFS= read -r input_file; do
     rel_path=${input_file#"$input_dir"/}
     rel_dir=$(dirname "$rel_path")
     base_name=$(basename "$rel_path" .wav)
     expected_name="${base_name}_vocoded_nbands-${n_bands}.wav"
+    seen_index=${dir_seen["$rel_dir"]:-0}
+    dir_seen["$rel_dir"]=$(( seen_index + 1 ))
     if [ "$rel_dir" = "." ]; then
-        expected_file="$output_dir/$expected_name"
+        expected_dir="$output_dir"
     else
-        expected_file="$output_dir/$rel_dir/$expected_name"
+        expected_dir="$output_dir/$rel_dir"
     fi
+    if [ "${dir_totals["$rel_dir"]}" -gt "$max_files_per_output_dir" ]; then
+        shard_index=$(( seen_index / max_files_per_output_dir ))
+        shard_dir=$(printf 'chunk_%05d' "$shard_index")
+        expected_dir="$expected_dir/$shard_dir"
+    fi
+    expected_file="$expected_dir/$expected_name"
     if [ ! -f "$expected_file" ]; then
         printf '%s\n' "$expected_file" >> "$output_file"
     fi

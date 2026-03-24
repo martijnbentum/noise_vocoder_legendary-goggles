@@ -94,6 +94,7 @@ https://pmc.ncbi.nlm.nih.gov/articles/PMC2730710/pdf/JASMAN-000126-000792_1.pdf
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FREQUENCY_CONFIG_FILENAME = REPO_ROOT / 'config' / 'frequency_bands.json'
+DEFAULT_MAX_OUTPUT_FILES_PER_DIR = 10000
 
 
 def load_frequency_config(filename = FREQUENCY_CONFIG_FILENAME):
@@ -126,7 +127,7 @@ def get_standard_bands(
 class Vocoder:
     def __init__(self, signal = None, sample_rate = 16000, frequencies = None,
         filename = None, butterworth_order = 4, match_rms = True,
-        output_dir = '', input_dir = '',):
+        output_dir = '', input_dir = '', output_shard_dir = '',):
         if filename is None and isinstance(signal, (str, os.PathLike)):
             filename = signal
             signal = None
@@ -139,6 +140,7 @@ class Vocoder:
         self.match_rms = match_rms
         self.output_dir = output_dir
         self.input_dir = input_dir
+        self.output_shard_dir = output_shard_dir
         self.path = Path(filename) if filename else None
         self.signal = signal
         self.white_noise = sp.white_noise(n_samples=len(signal))
@@ -300,6 +302,7 @@ class Vocoder:
             filename,
             output_dir=self.output_dir,
             input_dir=self.input_dir,
+            output_shard_dir=self.output_shard_dir,
             n_bands=self.n_bands,
         )
         audio.write_audio(self.vocoded_signal, filename, self.sample_rate)
@@ -438,6 +441,7 @@ def get_output_filename(
     filename,
     output_dir = '',
     input_dir = '',
+    output_shard_dir = '',
     n_bands = None,
 ):
     '''Return the target filename for a vocoded file.'''
@@ -450,6 +454,8 @@ def get_output_filename(
             except ValueError:
                 relative_parent = Path()
             directory = directory / relative_parent
+        if output_shard_dir:
+            directory = directory / output_shard_dir
         directory.mkdir(parents=True, exist_ok=True)
     else:
         directory = path.parent
@@ -484,6 +490,39 @@ def append_metadata(metadata_path, result):
 def get_failure_path(output_dir, failure_filename):
     '''Return the failure log path for a batch run if enabled.'''
     return get_metadata_path(output_dir, failure_filename)
+
+
+def make_output_shard_name(index):
+    '''Return the stable shard name for a zero-based shard index.'''
+    return f'chunk_{index:05d}'
+
+
+def build_output_shard_map(
+    filenames,
+    input_dir,
+    max_files_per_output_dir = DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
+):
+    '''Map input files to shard dirs for large source directories.'''
+    if not input_dir or max_files_per_output_dir < 1:
+        return {}
+    grouped = {}
+    input_root = Path(input_dir)
+    for filename in filenames:
+        path = Path(filename)
+        try:
+            relative_parent = path.parent.relative_to(input_root)
+        except ValueError:
+            relative_parent = Path()
+        key = str(relative_parent)
+        grouped.setdefault(key, []).append(str(path))
+    shard_map = {}
+    for key, group in grouped.items():
+        if len(group) <= max_files_per_output_dir:
+            continue
+        for index, filename in enumerate(group):
+            shard_index = index // max_files_per_output_dir
+            shard_map[filename] = make_output_shard_name(shard_index)
+    return shard_map
 
 
 def log_progress(processed, total, start_time, last_result = None):
@@ -569,11 +608,14 @@ def build_worker_config(args):
     }
 
 
-def iter_batch_tasks(filenames, worker_config):
+def iter_batch_tasks(filenames, worker_config, output_shard_map = None):
     '''Yield lightweight tasks for the process pool.'''
+    if output_shard_map is None:
+        output_shard_map = {}
     for filename in filenames:
         yield {
             'filename': str(filename),
+            'output_shard_dir': output_shard_map.get(str(filename), ''),
             'worker_config': worker_config,
         }
 
@@ -627,16 +669,28 @@ def handle_args(args):
         f'family={getattr(args, "frequency_family", "default_family")}',
         f'key={getattr(args, "frequency_key", None)}',
         f'nbands={args.nbands}',
+        'max_output_files_per_dir='
+        f'{getattr(args, "max_output_files_per_dir", DEFAULT_MAX_OUTPUT_FILES_PER_DIR)}',
         f'progress_every={getattr(args, "progress_every", 100)}',
         flush=True,
+    )
+    output_shard_map = build_output_shard_map(
+        fn,
+        args.input_dir,
+        getattr(
+            args,
+            'max_output_files_per_dir',
+            DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
+        ),
     )
     if args.nprocess == 1:
         for filename in fn:
             args.filename = filename
+            args.output_shard_dir = output_shard_map.get(str(filename), '')
             handle_filename(args)
         return
     worker_config = build_worker_config(args)
-    tasks = iter_batch_tasks(fn, worker_config)
+    tasks = iter_batch_tasks(fn, worker_config, output_shard_map)
     run_parallel_batch(args, tasks, len(fn))
     
         
@@ -647,7 +701,8 @@ def handle_filename(args):
     vocoder = Vocoder(filename=args.filename, sample_rate=args.sample_rate,
         butterworth_order=args.butterworth_order, match_rms=args.match_rms,
         frequencies=frequencies, output_dir=args.output_dir,
-        input_dir=getattr(args, 'input_dir', ''))
+        input_dir=getattr(args, 'input_dir', ''),
+        output_shard_dir=getattr(args, 'output_shard_dir', ''))
     output_filename = vocoder.write_vocoded()
     return make_success_result(
         args.filename,
@@ -664,6 +719,7 @@ def handle_task(task):
     start_time = time.time()
     worker_pid = os.getpid()
     filename = task['filename']
+    output_shard_dir = task.get('output_shard_dir', '')
     config = task['worker_config']
     try:
         vocoder = Vocoder(
@@ -674,6 +730,7 @@ def handle_task(task):
             frequencies=np.array(config['frequencies']),
             output_dir=config['output_dir'],
             input_dir=config['input_dir'],
+            output_shard_dir=output_shard_dir,
         )
         output_filename = vocoder.write_vocoded()
         result = make_success_result(
@@ -730,6 +787,9 @@ def build_parser():
     parser.add_argument('--failure_filename', type=str,
         default='vocoder_failures.jsonl',
         help='jsonl file for per-file batch failures, relative to output_dir')
+    parser.add_argument('--max_output_files_per_dir', type=int,
+        default=DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
+        help='maximum wav files per output directory before sharding')
     return parser
 
 
