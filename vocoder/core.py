@@ -96,7 +96,6 @@ https://pmc.ncbi.nlm.nih.gov/articles/PMC2730710/pdf/JASMAN-000126-000792_1.pdf
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FREQUENCY_CONFIG_FILENAME = REPO_ROOT / 'config' / 'frequency_bands.json'
 DEFAULT_MAX_OUTPUT_FILES_PER_DIR = 10000
-DEFAULT_PROGRESS_UPDATE_SECONDS = 30
 _POOL_WORKER_CONFIG = None
 _POOL_FREQUENCIES = None
 
@@ -555,10 +554,10 @@ def build_output_shard_map(
 
 
 def compute_pool_chunksize(total_files, nprocess):
-    '''Return a coarse chunksize to reduce pool scheduling overhead.'''
+    '''Return a modest chunksize for throughput without long hidden stalls.'''
     if total_files < 1 or nprocess < 1:
         return 1
-    return max(1, min(200, total_files // (nprocess * 2) or 1))
+    return max(1, min(16, total_files // (nprocess * 8) or 1))
 
 
 def init_pool_worker(worker_config):
@@ -579,74 +578,9 @@ def resolve_task_config(task):
     return _POOL_WORKER_CONFIG, _POOL_FREQUENCIES
 
 
-def make_progress_state(output_dir, total_files):
-    '''Create throttled progress state from environment configuration.'''
-    progress_filename = os.environ.get('PROGRESS_FILE', '').strip()
-    if not progress_filename:
-        return None
-    baseline_count = int(os.environ.get('PROGRESS_BASELINE_COUNT', '0'))
-    return {
-        'progress_filename': progress_filename,
-        'output_dir': output_dir,
-        'baseline_count': baseline_count,
-        'total_files': total_files,
-        'update_seconds': DEFAULT_PROGRESS_UPDATE_SECONDS,
-        'last_write_time': 0.0,
-        'start_time': time.time(),
-    }
-
-
-def write_progress_snapshot(
-    progress_state,
-    processed,
-    written,
-    failures,
-    status = 'running',
-    force = False,
-):
-    '''Write one atomic progress snapshot when due.'''
-    if progress_state is None:
-        return
-    now = time.time()
-    if not force:
-        if now - progress_state['last_write_time'] < progress_state['update_seconds']:
-            return
-    total_files = progress_state['total_files']
-    elapsed = now - progress_state['start_time']
-    rate = processed / elapsed if elapsed > 0 else 0.0
-    remaining = max(total_files - processed, 0)
-    tmp_path = Path(f'{progress_state["progress_filename"]}.tmp')
-    tmp_path.parent.mkdir(parents=True, exist_ok=True)
-    with tmp_path.open('w') as fout:
-        fout.write(f'status: {status}\n')
-        fout.write(
-            f'timestamp: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))}\n'
-        )
-        fout.write(f'output_dir: {progress_state["output_dir"]}\n')
-        fout.write(
-            f'wav_files_present: {progress_state["baseline_count"] + written}\n'
-        )
-        fout.write(
-            f'wav_files_baseline: {progress_state["baseline_count"]}\n'
-        )
-        fout.write(f'wav_files_written: {written}\n')
-        fout.write(f'processed_files: {processed}\n')
-        fout.write(f'failed_files: {failures}\n')
-        fout.write(f'total_expected: {total_files}\n')
-        fout.write(f'remaining: {remaining}\n')
-        if total_files > 0:
-            percentage = processed * 100 / total_files
-            fout.write(f'percent_complete: {percentage:.2f}%\n')
-        fout.write(f'elapsed_seconds: {elapsed:.1f}\n')
-        fout.write(f'rate_files_per_second: {rate:.2f}\n')
-    tmp_path.replace(progress_state['progress_filename'])
-    progress_state['last_write_time'] = now
-
-
 def run_parallel_batch(args, argss, total_files):
     '''Run a batch with compact error reporting.'''
     processed = 0
-    written = 0
     failures = 0
     start_time = time.time()
     chunksize = compute_pool_chunksize(total_files, args.nprocess)
@@ -669,8 +603,6 @@ def run_parallel_batch(args, argss, total_files):
         print(f'metadata_log: {metadata_path}', flush=True)
     if failure_path:
         print(f'failure_log: {failure_path}', flush=True)
-    progress_state = make_progress_state(getattr(args, 'output_dir', ''), total_files)
-    write_progress_snapshot(progress_state, 0, 0, 0, force=True)
     worker_config = build_worker_config(args)
     try:
         with multiprocessing.Pool(
@@ -686,7 +618,6 @@ def run_parallel_batch(args, argss, total_files):
             ):
                 processed += 1
                 if result['status'] == 'ok':
-                    written += 1
                     append_metadata(metadata_path, result)
                 else:
                     failures += 1
@@ -696,33 +627,10 @@ def run_parallel_batch(args, argss, total_files):
                         result['input_filename'],
                         flush=True,
                     )
-                write_progress_snapshot(
-                    progress_state,
-                    processed,
-                    written,
-                    failures,
-                )
     except Exception:
-        write_progress_snapshot(
-            progress_state,
-            processed,
-            written,
-            failures,
-            status='failed',
-            force=True,
-        )
         raise
     elapsed = time.time() - start_time
     rate = processed / elapsed if elapsed > 0 else 0.0
-    final_status = 'failed' if failures else 'done'
-    write_progress_snapshot(
-        progress_state,
-        processed,
-        written,
-        failures,
-        status=final_status,
-        force=True,
-    )
     print(
         'batch complete:',
         f'processed={processed}',
@@ -822,42 +730,10 @@ def handle_args(args):
         ),
     )
     if args.nprocess == 1:
-        progress_state = make_progress_state(
-            getattr(args, 'output_dir', ''),
-            len(fn),
-        )
-        write_progress_snapshot(progress_state, 0, 0, 0, force=True)
-        processed = 0
-        try:
-            for filename in fn:
-                args.filename = filename
-                args.output_shard_dir = output_shard_map.get(str(filename), '')
-                handle_filename(args)
-                processed += 1
-                write_progress_snapshot(
-                    progress_state,
-                    processed,
-                    processed,
-                    0,
-                )
-        except Exception:
-            write_progress_snapshot(
-                progress_state,
-                processed,
-                processed,
-                1,
-                status='failed',
-                force=True,
-            )
-            raise
-        write_progress_snapshot(
-            progress_state,
-            processed,
-            processed,
-            0,
-            status='done',
-            force=True,
-        )
+        for filename in fn:
+            args.filename = filename
+            args.output_shard_dir = output_shard_map.get(str(filename), '')
+            handle_filename(args)
         return
     tasks = iter_batch_tasks(fn, output_shard_map)
     run_parallel_batch(args, tasks, len(fn))
