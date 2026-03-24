@@ -97,11 +97,18 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
   output directory, and submits the generic sbatch runner.
 - `sbatch_vocode_job.sh` is the generic 64-core Slurm entrypoint that loads
   the named job configuration inside the job.
+- `submit_repair_vocode_job.sh <job_name>` submits a repair run for a named
+  job and reruns only source wavs whose expected outputs are still missing.
+- `find_missing_vocoded_wavs.sh <job_name>` writes the missing source wav
+  paths to `archive/missing_<job_name>_<slurm_job_id>.txt`.
 - Slurm stdout/stderr files are written to
   [`slurm_out/`](/Users/martijn.bentum/vocoder/repo/slurm_out).
 - Batch progress is written to `archive/progress_<slurm_job_id>.txt` by the
   parent Python process, so the `.out` log stays compact and there is no
   separate filesystem-scanning sidecar.
+- If a running job stalls and `seconds_since_last_wav_change` exceeds 360
+  while progress is still below `100%`, the main job submits one repair job
+  automatically and then stops itself.
 
 Example submissions:
 ```bash
@@ -114,6 +121,18 @@ Example submissions:
 ./scripts/submit_vocode_job.sh default_8_band
 ./scripts/submit_vocode_job.sh default_16_band
 ./scripts/submit_vocode_job.sh speech_weighted_8_band
+```
+
+Example repair commands:
+```bash
+# Submit a repair job for one named batch.
+./scripts/submit_repair_vocode_job.sh default_4_band
+
+# Build the missing-file list explicitly for inspection.
+./scripts/find_missing_vocoded_wavs.sh default_4_band
+
+# Run the repair flow directly inside an allocation.
+./scripts/run_repair_vocode.sh default_4_band
 ```
 
 The Snellius runner uses unbuffered Python output for startup, failures, and a
