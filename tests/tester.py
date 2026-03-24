@@ -175,6 +175,63 @@ class HandleArgsTests(unittest.TestCase):
             '{"input_filename": "a.wav", "output_filename": "b.wav"}',
         )
 
+    def test_iter_batch_tasks_streams_lightweight_dicts(self):
+        filenames = [core.Path('/tmp/input/a.wav'), core.Path('/tmp/input/b.wav')]
+        worker_config = {'sample_rate': 16000, 'frequencies': [50, 100, 200]}
+        tasks = list(core.iter_batch_tasks(filenames, worker_config))
+        self.assertEqual(
+            tasks,
+            [
+                {
+                    'filename': '/tmp/input/a.wav',
+                    'worker_config': worker_config,
+                },
+                {
+                    'filename': '/tmp/input/b.wav',
+                    'worker_config': worker_config,
+                },
+            ],
+        )
+
+    def test_make_failure_result_is_json_serializable(self):
+        try:
+            raise ValueError('broken file')
+        except ValueError as exc:
+            result = core.make_failure_result(
+                'demo.wav',
+                np.float32(1.25),
+                123,
+                exc,
+            )
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_type'], 'ValueError')
+        self.assertIn('broken file', result['error_message'])
+        self.assertIn('ValueError', result['traceback'])
+        self.assertIsInstance(result['elapsed_seconds'], float)
+        self.assertEqual(result['worker_pid'], 123)
+
+    def test_handle_task_returns_failure_result(self):
+        task = {
+            'filename': 'broken.wav',
+            'worker_config': {
+                'sample_rate': 16000,
+                'butterworth_order': 4,
+                'match_rms': False,
+                'output_dir': '',
+                'input_dir': '',
+                'frequencies': [50, 100, 200],
+            },
+        }
+        with mock.patch(
+            'vocoder.core.Vocoder',
+            side_effect=RuntimeError('test failure'),
+        ):
+            result = core.handle_task(task)
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['input_filename'], 'broken.wav')
+        self.assertEqual(result['error_type'], 'RuntimeError')
+        self.assertIn('test failure', result['error_message'])
+
 
 class FrequencyBandTests(unittest.TestCase):
     def test_vocoded_signal_uses_envelope_times_band_limited_noise(self):

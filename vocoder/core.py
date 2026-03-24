@@ -1,10 +1,10 @@
 import argparse
-import copy
 import json
 import multiprocessing
 import os
 from pathlib import Path
 import time
+import traceback
 
 import numpy as np
 
@@ -481,6 +481,11 @@ def append_metadata(metadata_path, result):
         fout.write('\n')
 
 
+def get_failure_path(output_dir, failure_filename):
+    '''Return the failure log path for a batch run if enabled.'''
+    return get_metadata_path(output_dir, failure_filename)
+
+
 def log_progress(processed, total, start_time, last_result = None):
     '''Print a compact batch progress line.'''
     elapsed = time.time() - start_time
@@ -502,11 +507,16 @@ def run_parallel_batch(args, argss, total_files):
     '''Run a batch with compact progress reporting.'''
     start_time = time.time()
     processed = 0
+    failures = 0
     progress_every = max(1, getattr(args, 'progress_every', 100))
     chunksize = max(1, min(50, total_files // (args.nprocess * 4) or 1))
     metadata_path = get_metadata_path(
         getattr(args, 'output_dir', ''),
         getattr(args, 'metadata_filename', ''),
+    )
+    failure_path = get_failure_path(
+        getattr(args, 'output_dir', ''),
+        getattr(args, 'failure_filename', ''),
     )
     print(
         'pool launch:',
@@ -517,20 +527,88 @@ def run_parallel_batch(args, argss, total_files):
     )
     if metadata_path:
         print(f'metadata_log: {metadata_path}', flush=True)
+    if failure_path:
+        print(f'failure_log: {failure_path}', flush=True)
     with multiprocessing.Pool(
         args.nprocess,
         maxtasksperchild=args.worker_max_tasks,
     ) as pool:
         for result in pool.imap_unordered(
-            handle_filename,
+            handle_task,
             argss,
             chunksize=chunksize,
         ):
             processed += 1
-            append_metadata(metadata_path, result)
+            if result['status'] == 'ok':
+                append_metadata(metadata_path, result)
+            else:
+                failures += 1
+                append_metadata(failure_path, result)
+                print(
+                    'file failed:',
+                    result['input_filename'],
+                    flush=True,
+                )
             if processed == 1 or processed % progress_every == 0:
                 log_progress(processed, total_files, start_time, result)
     log_progress(processed, total_files, start_time)
+    if failures:
+        print(f'failed_files: {failures}', flush=True)
+
+
+def build_worker_config(args):
+    '''Create the shared worker config for a batch run.'''
+    frequencies = handle_frequencies(args)
+    return {
+        'sample_rate': args.sample_rate,
+        'butterworth_order': args.butterworth_order,
+        'match_rms': args.match_rms,
+        'output_dir': args.output_dir,
+        'input_dir': getattr(args, 'input_dir', ''),
+        'frequencies': frequencies.tolist(),
+    }
+
+
+def iter_batch_tasks(filenames, worker_config):
+    '''Yield lightweight tasks for the process pool.'''
+    for filename in filenames:
+        yield {
+            'filename': str(filename),
+            'worker_config': worker_config,
+        }
+
+
+def make_success_result(
+    filename,
+    output_filename,
+    elapsed_seconds,
+    signal_intensity_db,
+    vocoded_intensity_db,
+    n_bands,
+):
+    '''Create a JSON-safe success result.'''
+    return {
+        'status': 'ok',
+        'input_filename': str(filename),
+        'output_filename': str(output_filename),
+        'elapsed_seconds': float(round(elapsed_seconds, 4)),
+        'signal_intensity_db': float(round(signal_intensity_db, 4)),
+        'vocoded_intensity_db': float(round(vocoded_intensity_db, 4)),
+        'n_bands': int(n_bands),
+    }
+
+
+def make_failure_result(filename, elapsed_seconds, worker_pid, exc):
+    '''Create a JSON-safe failure result.'''
+    return {
+        'status': 'error',
+        'worker_pid': int(worker_pid),
+        'input_filename': str(filename),
+        'elapsed_seconds': float(round(elapsed_seconds, 4)),
+        'error_type': exc.__class__.__name__,
+        'error_message': str(exc),
+        'traceback': traceback.format_exc(),
+    }
 
 
 def handle_args(args):
@@ -557,10 +635,9 @@ def handle_args(args):
             args.filename = filename
             handle_filename(args)
         return
-    argss = [copy.copy(args) for _ in range(len(fn))]
-    for i, filename in enumerate(fn):
-        argss[i].filename = filename
-    run_parallel_batch(args, argss, len(fn))
+    worker_config = build_worker_config(args)
+    tasks = iter_batch_tasks(fn, worker_config)
+    run_parallel_batch(args, tasks, len(fn))
     
         
 def handle_filename(args):
@@ -572,15 +649,50 @@ def handle_filename(args):
         frequencies=frequencies, output_dir=args.output_dir,
         input_dir=getattr(args, 'input_dir', ''))
     output_filename = vocoder.write_vocoded()
-    return {
-        'worker_pid': worker_pid,
-        'input_filename': str(args.filename),
-        'output_filename': str(output_filename),
-        'elapsed_seconds': float(round(time.time() - start_time, 4)),
-        'signal_intensity_db': float(round(vocoder.signal_intensity, 4)),
-        'vocoded_intensity_db': float(round(vocoder.vocoded_intensity, 4)),
-        'n_bands': int(vocoder.n_bands),
-    }
+    return make_success_result(
+        args.filename,
+        output_filename,
+        time.time() - start_time,
+        vocoder.signal_intensity,
+        vocoder.vocoded_intensity,
+        vocoder.n_bands,
+    )
+
+
+def handle_task(task):
+    '''Process one pooled batch task and return a JSON-safe result.'''
+    start_time = time.time()
+    worker_pid = os.getpid()
+    filename = task['filename']
+    config = task['worker_config']
+    try:
+        vocoder = Vocoder(
+            filename=filename,
+            sample_rate=config['sample_rate'],
+            butterworth_order=config['butterworth_order'],
+            match_rms=config['match_rms'],
+            frequencies=np.array(config['frequencies']),
+            output_dir=config['output_dir'],
+            input_dir=config['input_dir'],
+        )
+        output_filename = vocoder.write_vocoded()
+        result = make_success_result(
+            filename,
+            output_filename,
+            time.time() - start_time,
+            vocoder.signal_intensity,
+            vocoder.vocoded_intensity,
+            vocoder.n_bands,
+        )
+        result['worker_pid'] = int(worker_pid)
+        return result
+    except Exception as exc:
+        return make_failure_result(
+            filename,
+            time.time() - start_time,
+            worker_pid,
+            exc,
+        )
 
 
 def build_parser():
@@ -615,6 +727,9 @@ def build_parser():
     parser.add_argument('--metadata_filename', type=str,
         default='',
         help='jsonl file for per-file batch metadata, relative to output_dir')
+    parser.add_argument('--failure_filename', type=str,
+        default='vocoder_failures.jsonl',
+        help='jsonl file for per-file batch failures, relative to output_dir')
     return parser
 
 
