@@ -45,7 +45,7 @@ progress_file="$archive_dir/progress_${job_id}.txt"
     "$progress_file" \
     "$baseline_count" \
     "$input_count" \
-    180 &
+    30 &
 progress_pid=$!
 
 cleanup() {
