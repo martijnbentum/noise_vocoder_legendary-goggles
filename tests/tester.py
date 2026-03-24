@@ -1,4 +1,5 @@
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -258,11 +259,9 @@ class HandleArgsTests(unittest.TestCase):
 
     def test_iter_batch_tasks_streams_lightweight_dicts(self):
         filenames = [core.Path('/tmp/input/a.wav'), core.Path('/tmp/input/b.wav')]
-        worker_config = {'sample_rate': 16000, 'frequencies': [50, 100, 200]}
         tasks = list(
             core.iter_batch_tasks(
                 filenames,
-                worker_config,
                 {'/tmp/input/b.wav': 'chunk_00003'},
             )
         )
@@ -272,15 +271,59 @@ class HandleArgsTests(unittest.TestCase):
                 {
                     'filename': '/tmp/input/a.wav',
                     'output_shard_dir': '',
-                    'worker_config': worker_config,
                 },
                 {
                     'filename': '/tmp/input/b.wav',
                     'output_shard_dir': 'chunk_00003',
-                    'worker_config': worker_config,
                 },
             ],
         )
+
+    def test_init_pool_worker_reuses_frequency_array(self):
+        worker_config = {
+            'sample_rate': 16000,
+            'butterworth_order': 4,
+            'match_rms': False,
+            'output_dir': '/tmp/output',
+            'input_dir': '/tmp/input',
+            'frequencies': [50, 100, 200],
+        }
+        core.init_pool_worker(worker_config)
+        config, frequencies = core.resolve_task_config({'filename': 'demo.wav'})
+        self.assertEqual(config['sample_rate'], 16000)
+        np.testing.assert_array_equal(frequencies, np.array([50, 100, 200]))
+
+    def test_write_progress_snapshot_writes_atomic_status_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            progress_state = {
+                'progress_filename': str(core.Path(temp_dir) / 'progress.txt'),
+                'output_dir': '/tmp/output',
+                'baseline_count': 3,
+                'total_files': 10,
+                'update_seconds': 30,
+                'last_write_time': 0.0,
+                'start_time': 100.0,
+            }
+            with mock.patch('vocoder.core.time.time', return_value=110.0):
+                with mock.patch(
+                    'vocoder.core.time.localtime',
+                    return_value=time.struct_time(
+                        (2026, 3, 24, 12, 0, 0, 1, 83, -1)
+                    ),
+                ):
+                    core.write_progress_snapshot(
+                        progress_state,
+                        processed=4,
+                        written=3,
+                        failures=1,
+                        status='running',
+                        force=True,
+                    )
+            content = core.Path(progress_state['progress_filename']).read_text()
+        self.assertIn('status: running', content)
+        self.assertIn('wav_files_present: 6', content)
+        self.assertIn('processed_files: 4', content)
+        self.assertIn('failed_files: 1', content)
 
     def test_make_failure_result_is_json_serializable(self):
         try:

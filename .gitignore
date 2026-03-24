@@ -2,7 +2,9 @@
 __pycache__/
 *.wav
 .DS_Store
-archive/
+archive/*
+!archive/scripts/
+!archive/scripts/**
 AGENTS.md
 slurm_out/
 vocoder.egg-info/

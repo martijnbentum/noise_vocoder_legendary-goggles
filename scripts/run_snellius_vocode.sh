@@ -39,20 +39,8 @@ input_count=$(find "$input_dir" -type f -name '*.wav' | wc -l | tr -d ' ')
 baseline_count=$(find "$output_dir" -type f -name '*.wav' | wc -l | tr -d ' ')
 job_id="${SLURM_JOB_ID:-manual}"
 progress_file="$archive_dir/progress_${job_id}.txt"
-
-"$script_dir/output_progress_monitor.sh" \
-    "$output_dir" \
-    "$progress_file" \
-    "$baseline_count" \
-    "$input_count" &
-progress_pid=$!
-
-cleanup() {
-    kill "$progress_pid" 2>/dev/null || true
-    wait "$progress_pid" 2>/dev/null || true
-}
-
-trap cleanup EXIT
+export PROGRESS_FILE="$progress_file"
+export PROGRESS_BASELINE_COUNT="$baseline_count"
 
 echo "=== Snellius vocoder job ==="
 echo "host: $(hostname)"

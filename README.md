@@ -95,14 +95,13 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
   execute all jobs.
 - `submit_vocode_job.sh <job_name>` resolves a named job, checks the target
   output directory, and submits the generic sbatch runner.
-- `submit_fix_legacy_missing_vocode_job.sh <job_name> <missing_list>`
-  submits a dedicated repair job for missing lists that contain legacy output
-  paths such as `..._vocoded_nbands-6.wav`; it maps those entries back to
-  source inputs and vocodes only the still-missing current outputs.
 - `sbatch_vocode_job.sh` is the generic 64-core Slurm entrypoint that loads
   the named job configuration inside the job.
 - Slurm stdout/stderr files are written to
   [`slurm_out/`](/Users/martijn.bentum/vocoder/repo/slurm_out).
+- Batch progress is written to `archive/progress_<slurm_job_id>.txt` by the
+  parent Python process, so the `.out` log stays compact and there is no
+  separate filesystem-scanning sidecar.
 
 Example submissions:
 ```bash
@@ -117,5 +116,5 @@ Example submissions:
 ./scripts/submit_vocode_job.sh speech_weighted_8_band
 ```
 
-The Snellius runner uses unbuffered Python output so progress appears in the
-Slurm `.out` file during the job.
+The Snellius runner uses unbuffered Python output for startup, failures, and a
+final batch summary.
