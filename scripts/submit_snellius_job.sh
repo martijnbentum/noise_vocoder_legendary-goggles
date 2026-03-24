@@ -31,4 +31,4 @@ fi
 
 echo "Submitting $sbatch_script"
 echo "output_dir check passed: $output_dir"
-sbatch --chdir="$repo_root" "$sbatch_script"
+sbatch --chdir="$repo_root" --export=ALL,OUTPUT_DIR="$output_dir" "$sbatch_script"

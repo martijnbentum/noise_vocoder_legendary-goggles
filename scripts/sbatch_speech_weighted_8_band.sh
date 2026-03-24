@@ -10,9 +10,10 @@
 set -eu
 
 repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
+: "${OUTPUT_DIR:?OUTPUT_DIR is not set}"
 
 "$repo_root/scripts/run_snellius_vocode.sh" \
     speech_weighted \
     8_band \
     8 \
-    /scratch-shared/mbentum1/vocoded_bands-speech_weighted-8_spidr/wav/
+    "$OUTPUT_DIR"
