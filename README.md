@@ -102,6 +102,9 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
 
 Example submissions:
 ```bash
+# Show all available named jobs.
+./scripts/submit_vocode_job.sh --list
+
 # Submit a named job through the generic submit path.
 ./scripts/submit_vocode_job.sh default_4_band
 ./scripts/submit_vocode_job.sh default_6_band
