@@ -26,6 +26,7 @@ repo_root=$(cd "$script_dir/.." && pwd)
 env_dir="$repo_root/.venv-snellius"
 input_dir="/projects/0/prjs1489/data/spidr/wav"
 nprocess="${SLURM_CPUS_PER_TASK:-128}"
+archive_dir="$repo_root/archive"
 
 . "$script_dir/snellius_jobs.sh"
 load_vocode_job "$job_name"
@@ -36,6 +37,7 @@ fi
 
 source "$env_dir/bin/activate"
 
+mkdir -p "$archive_dir"
 export OMP_NUM_THREADS=1
 export PYTHONUNBUFFERED=1
 export REPO_ROOT="$repo_root"
@@ -49,6 +51,25 @@ export MISSING_LIST="$missing_list"
 export NPROCESS="$nprocess"
 export LEGACY_OUTPUT_DIR="$JOB_OUTPUT_DIR"
 
+job_id="${SLURM_JOB_ID:-manual}"
+baseline_count=$(find "$JOB_OUTPUT_DIR" -type f -name '*.wav' | wc -l | tr -d ' ')
+missing_count=$(wc -l < "$missing_list" | tr -d ' ')
+progress_file="$archive_dir/progress_${job_id}.txt"
+
+"$script_dir/output_progress_monitor.sh" \
+    "$JOB_OUTPUT_DIR" \
+    "$progress_file" \
+    "$baseline_count" \
+    "$missing_count" &
+progress_pid=$!
+
+cleanup() {
+    kill "$progress_pid" 2>/dev/null || true
+    wait "$progress_pid" 2>/dev/null || true
+}
+
+trap cleanup EXIT
+
 echo "=== Snellius legacy missing repair job ==="
 echo "host: $(hostname)"
 echo "job_id: ${SLURM_JOB_ID:-none}"
@@ -60,6 +81,7 @@ echo "input_dir: $INPUT_DIR"
 echo "output_dir: $OUTPUT_DIR"
 echo "legacy_output_dir: $LEGACY_OUTPUT_DIR"
 echo "missing_list: $MISSING_LIST"
+echo "progress_file: $progress_file"
 echo "venv: $env_dir"
 echo "========================================"
 
@@ -106,10 +128,10 @@ def build_worker_config(
 
 
 def run_missing_batch(tasks, total_files, nprocess):
-    start_time = time.time()
     processed = 0
     failures = 0
-    chunksize = max(1, min(50, total_files // (nprocess * 4) or 1))
+    start_time = time.time()
+    chunksize = core.compute_pool_chunksize(total_files, nprocess)
     failure_log = (
         Path(os.environ['OUTPUT_DIR'])
         / f'legacy_missing_failures_{os.environ["JOB_NAME"]}.jsonl'
@@ -139,9 +161,15 @@ def run_missing_batch(tasks, total_files, nprocess):
                     result['input_filename'],
                     flush=True,
                 )
-            if processed == 1 or processed % 100 == 0:
-                core.log_progress(processed, total_files, start_time, result)
-    core.log_progress(processed, total_files, start_time)
+    elapsed = time.time() - start_time
+    rate = processed / elapsed if elapsed > 0 else 0.0
+    print(
+        'repair batch complete:',
+        f'processed={processed}',
+        f'elapsed={elapsed:.1f}s',
+        f'rate={rate:.2f} files/s',
+        flush=True,
+    )
     if failures:
         print(f'repair_failed_files: {failures}', flush=True)
 

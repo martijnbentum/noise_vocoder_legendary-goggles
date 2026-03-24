@@ -551,30 +551,19 @@ def build_output_shard_map(
     return shard_map
 
 
-def log_progress(processed, total, start_time, last_result = None):
-    '''Print a compact batch progress line.'''
-    elapsed = time.time() - start_time
-    rate = processed / elapsed if elapsed > 0 else 0.0
-    remaining = max(total - processed, 0)
-    eta_seconds = remaining / rate if rate > 0 else None
-    message = (
-        f'progress: {processed}/{total} files '
-        f'({rate:.2f} files/s, elapsed={elapsed:.1f}s)'
-    )
-    if eta_seconds is not None:
-        message += f' eta={eta_seconds / 3600:.2f}h'
-    if last_result:
-        message += f' latest={Path(last_result["output_filename"]).name}'
-    print(message, flush=True)
+def compute_pool_chunksize(total_files, nprocess):
+    '''Return a coarse chunksize to reduce pool scheduling overhead.'''
+    if total_files < 1 or nprocess < 1:
+        return 1
+    return max(1, min(200, total_files // (nprocess * 2) or 1))
 
 
 def run_parallel_batch(args, argss, total_files):
-    '''Run a batch with compact progress reporting.'''
-    start_time = time.time()
+    '''Run a batch with compact error reporting.'''
     processed = 0
     failures = 0
-    progress_every = max(1, getattr(args, 'progress_every', 100))
-    chunksize = max(1, min(50, total_files // (args.nprocess * 4) or 1))
+    start_time = time.time()
+    chunksize = compute_pool_chunksize(total_files, args.nprocess)
     metadata_path = get_metadata_path(
         getattr(args, 'output_dir', ''),
         getattr(args, 'metadata_filename', ''),
@@ -614,9 +603,15 @@ def run_parallel_batch(args, argss, total_files):
                     result['input_filename'],
                     flush=True,
                 )
-            if processed == 1 or processed % progress_every == 0:
-                log_progress(processed, total_files, start_time, result)
-    log_progress(processed, total_files, start_time)
+    elapsed = time.time() - start_time
+    rate = processed / elapsed if elapsed > 0 else 0.0
+    print(
+        'batch complete:',
+        f'processed={processed}',
+        f'elapsed={elapsed:.1f}s',
+        f'rate={rate:.2f} files/s',
+        flush=True,
+    )
     if failures:
         print(f'failed_files: {failures}', flush=True)
 
@@ -697,7 +692,6 @@ def handle_args(args):
         f'nbands={args.nbands}',
         'max_output_files_per_dir='
         f'{getattr(args, "max_output_files_per_dir", DEFAULT_MAX_OUTPUT_FILES_PER_DIR)}',
-        f'progress_every={getattr(args, "progress_every", 100)}',
         flush=True,
     )
     output_shard_map = build_output_shard_map(

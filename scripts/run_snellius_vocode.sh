@@ -22,6 +22,7 @@ repo_root=$(cd "$script_dir/.." && pwd)
 env_dir="$repo_root/.venv-snellius"
 input_dir="/projects/0/prjs1489/data/spidr/wav"
 nprocess="${SLURM_CPUS_PER_TASK:-64}"
+archive_dir="$repo_root/archive"
 
 if [ ! -x "$env_dir/bin/python" ]; then
     "$script_dir/build_snellius_env.sh"
@@ -30,10 +31,28 @@ fi
 source "$env_dir/bin/activate"
 
 mkdir -p "$output_dir"
+mkdir -p "$archive_dir"
 export OMP_NUM_THREADS=1
 export PYTHONUNBUFFERED=1
 
 input_count=$(find "$input_dir" -type f -name '*.wav' | wc -l | tr -d ' ')
+baseline_count=$(find "$output_dir" -type f -name '*.wav' | wc -l | tr -d ' ')
+job_id="${SLURM_JOB_ID:-manual}"
+progress_file="$archive_dir/progress_${job_id}.txt"
+
+"$script_dir/output_progress_monitor.sh" \
+    "$output_dir" \
+    "$progress_file" \
+    "$baseline_count" \
+    "$input_count" &
+progress_pid=$!
+
+cleanup() {
+    kill "$progress_pid" 2>/dev/null || true
+    wait "$progress_pid" 2>/dev/null || true
+}
+
+trap cleanup EXIT
 
 echo "=== Snellius vocoder job ==="
 echo "host: $(hostname)"
@@ -47,6 +66,7 @@ echo "n_bands: $n_bands"
 echo "input_dir: $input_dir"
 echo "input_wav_count: $input_count"
 echo "output_dir: $output_dir"
+echo "progress_file: $progress_file"
 echo "venv: $env_dir"
 echo "==========================="
 

@@ -237,6 +237,11 @@ class HandleArgsTests(unittest.TestCase):
             },
         )
 
+    def test_compute_pool_chunksize_uses_coarser_batches(self):
+        self.assertEqual(core.compute_pool_chunksize(0, 64), 1)
+        self.assertEqual(core.compute_pool_chunksize(100, 10), 5)
+        self.assertEqual(core.compute_pool_chunksize(50000, 64), 200)
+
     def test_append_metadata_writes_jsonl_records(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             metadata_path = core.Path(temp_dir) / 'meta' / 'batch.jsonl'
