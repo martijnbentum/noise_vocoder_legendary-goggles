@@ -135,7 +135,7 @@ class HandleArgsTests(unittest.TestCase):
         forwarded_args = handle_filename.call_args[0][0]
         self.assertEqual(forwarded_args.filename, wav_file)
 
-    def test_get_output_filename_preserves_relative_input_structure(self):
+    def test_get_output_filename_uses_hashed_flat_layout(self):
         filename = '/tmp/input/nested/example.wav'
         output_filename = core.get_output_filename(
             filename,
@@ -145,7 +145,7 @@ class HandleArgsTests(unittest.TestCase):
         )
         self.assertEqual(
             output_filename,
-            '/tmp/output/nested/example_vocoded_nbands-6.wav',
+            '/tmp/output/c9ea4a26__example_voc6.wav',
         )
 
     def test_get_output_filename_adds_shard_directory(self):
@@ -159,7 +159,7 @@ class HandleArgsTests(unittest.TestCase):
         )
         self.assertEqual(
             output_filename,
-            '/tmp/output/nested/chunk_00001/example_vocoded_nbands-6.wav',
+            '/tmp/output/chunk_00001/c9ea4a26__example_voc6.wav',
         )
 
     def test_get_output_filename_falls_back_to_flat_output_dir(self):
@@ -172,10 +172,17 @@ class HandleArgsTests(unittest.TestCase):
         )
         self.assertEqual(
             output_filename,
-            '/tmp/output/example_vocoded_nbands-4.wav',
+            '/tmp/output/c361346c__example_voc4.wav',
         )
 
-    def test_build_output_shard_map_only_shards_large_directories(self):
+    def test_build_output_stem_avoids_collisions_for_same_basename(self):
+        left = core.build_output_stem('/tmp/input/a/example.wav', '/tmp/input')
+        right = core.build_output_stem('/tmp/input/b/example.wav', '/tmp/input')
+        self.assertNotEqual(left, right)
+        self.assertEqual(left, '76a8cbab__example')
+        self.assertEqual(right, 'ad21031f__example')
+
+    def test_build_output_shard_map_shards_globally(self):
         filenames = [
             core.Path('/tmp/input/flat/a.wav'),
             core.Path('/tmp/input/flat/b.wav'),
@@ -193,6 +200,7 @@ class HandleArgsTests(unittest.TestCase):
                 '/tmp/input/flat/a.wav': 'chunk_00000',
                 '/tmp/input/flat/b.wav': 'chunk_00000',
                 '/tmp/input/flat/c.wav': 'chunk_00001',
+                '/tmp/input/nested/d.wav': 'chunk_00001',
             },
         )
 

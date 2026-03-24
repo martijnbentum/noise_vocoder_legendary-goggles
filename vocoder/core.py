@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import multiprocessing
 import os
@@ -448,20 +449,16 @@ def get_output_filename(
     path = Path(filename)
     if output_dir:
         directory = Path(output_dir)
-        if input_dir:
-            try:
-                relative_parent = path.parent.relative_to(Path(input_dir))
-            except ValueError:
-                relative_parent = Path()
-            directory = directory / relative_parent
         if output_shard_dir:
             directory = directory / output_shard_dir
         directory.mkdir(parents=True, exist_ok=True)
+        output_stem = build_output_stem(path, input_dir)
     else:
         directory = path.parent
-    output_filename = directory / path.stem
+        output_stem = path.stem
+    output_filename = directory / output_stem
     if n_bands is not None:
-        output_filename = f'{output_filename}_vocoded_nbands-{n_bands}.wav'
+        output_filename = f'{output_filename}_voc{n_bands}.wav'
     else:
         output_filename = f'{output_filename}_vocoded.wav'
     return str(output_filename)
@@ -497,31 +494,37 @@ def make_output_shard_name(index):
     return f'chunk_{index:05d}'
 
 
+def get_relative_input_path(filename, input_dir):
+    '''Return a stable relative input path when available.'''
+    path = Path(filename)
+    if not input_dir:
+        return path.name
+    try:
+        return path.relative_to(Path(input_dir)).as_posix()
+    except ValueError:
+        return path.name
+
+
+def build_output_stem(filename, input_dir = ''):
+    '''Return a collision-safe output stem for batch outputs.'''
+    path = Path(filename)
+    relative_path = get_relative_input_path(path, input_dir)
+    digest = hashlib.sha1(relative_path.encode('utf-8')).hexdigest()[:8]
+    return f'{digest}__{path.stem}'
+
+
 def build_output_shard_map(
     filenames,
     input_dir,
     max_files_per_output_dir = DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
 ):
-    '''Map input files to shard dirs for large source directories.'''
-    if not input_dir or max_files_per_output_dir < 1:
+    '''Map input files to shard dirs for flat batch output directories.'''
+    if max_files_per_output_dir < 1:
         return {}
-    grouped = {}
-    input_root = Path(input_dir)
-    for filename in filenames:
-        path = Path(filename)
-        try:
-            relative_parent = path.parent.relative_to(input_root)
-        except ValueError:
-            relative_parent = Path()
-        key = str(relative_parent)
-        grouped.setdefault(key, []).append(str(path))
     shard_map = {}
-    for key, group in grouped.items():
-        if len(group) <= max_files_per_output_dir:
-            continue
-        for index, filename in enumerate(group):
-            shard_index = index // max_files_per_output_dir
-            shard_map[filename] = make_output_shard_name(shard_index)
+    for index, filename in enumerate(filenames):
+        shard_index = index // max_files_per_output_dir
+        shard_map[str(filename)] = make_output_shard_name(shard_index)
     return shard_map
 
 

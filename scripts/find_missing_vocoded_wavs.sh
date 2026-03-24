@@ -33,36 +33,20 @@ mkdir -p "$archive_dir"
 timestamp=$(date +"%Y%m%d_%H%M%S")
 output_file="$archive_dir/missing_${job_name}_${timestamp}.txt"
 
-declare -A dir_totals
-declare -A dir_seen
-
+file_index=0
 while IFS= read -r input_file; do
     rel_path=${input_file#"$input_dir"/}
-    rel_dir=$(dirname "$rel_path")
-    dir_totals["$rel_dir"]=$(( ${dir_totals["$rel_dir"]:-0} + 1 ))
-done < <(find "$input_dir" -type f -name '*.wav' | sort)
-
-while IFS= read -r input_file; do
-    rel_path=${input_file#"$input_dir"/}
-    rel_dir=$(dirname "$rel_path")
     base_name=$(basename "$rel_path" .wav)
-    expected_name="${base_name}_vocoded_nbands-${n_bands}.wav"
-    seen_index=${dir_seen["$rel_dir"]:-0}
-    dir_seen["$rel_dir"]=$(( seen_index + 1 ))
-    if [ "$rel_dir" = "." ]; then
-        expected_dir="$output_dir"
-    else
-        expected_dir="$output_dir/$rel_dir"
-    fi
-    if [ "${dir_totals["$rel_dir"]}" -gt "$max_files_per_output_dir" ]; then
-        shard_index=$(( seen_index / max_files_per_output_dir ))
-        shard_dir=$(printf 'chunk_%05d' "$shard_index")
-        expected_dir="$expected_dir/$shard_dir"
-    fi
+    hash_prefix=$(printf '%s' "$rel_path" | shasum | cut -c1-8)
+    expected_name="${hash_prefix}__${base_name}_voc${n_bands}.wav"
+    shard_index=$(( file_index / max_files_per_output_dir ))
+    shard_dir=$(printf 'chunk_%05d' "$shard_index")
+    expected_dir="${output_dir%/}/$shard_dir"
     expected_file="$expected_dir/$expected_name"
     if [ ! -f "$expected_file" ]; then
         printf '%s\n' "$expected_file" >> "$output_file"
     fi
+    file_index=$(( file_index + 1 ))
 done < <(find "$input_dir" -type f -name '*.wav' | sort)
 
 if [ ! -f "$output_file" ]; then
