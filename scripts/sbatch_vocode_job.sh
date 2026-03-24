@@ -1,5 +1,4 @@
 #!/bin/bash
-#SBATCH --job-name=vocoder-default-4
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=64
@@ -9,11 +8,16 @@
 
 set -eu
 
-repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
+: "${JOB_NAME:?JOB_NAME is not set}"
 : "${OUTPUT_DIR:?OUTPUT_DIR is not set}"
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
+. "$script_dir/snellius_jobs.sh"
+load_vocode_job "$JOB_NAME"
+
 "$repo_root/scripts/run_snellius_vocode.sh" \
-    default_family \
-    4_band \
-    4 \
+    "$JOB_FAMILY" \
+    "$JOB_KEY" \
+    "$JOB_NBANDS" \
     "$OUTPUT_DIR"
