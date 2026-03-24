@@ -46,12 +46,28 @@ load_vocode_job() {
 }
 
 
-list_vocode_jobs() {
+iter_vocode_jobs() {
     cat <<'EOF'
 default_4_band
 default_6_band
 default_8_band
 default_16_band
 speech_weighted_8_band
+EOF
+}
+
+
+list_vocode_jobs() {
+    while IFS= read -r job_name; do
+        load_vocode_job "$job_name"
+        cat <<EOF
+name: $job_name
+  JOB_FAMILY=$JOB_FAMILY
+  JOB_KEY=$JOB_KEY
+  JOB_NBANDS=$JOB_NBANDS
+  JOB_OUTPUT_DIR=$JOB_OUTPUT_DIR
+EOF
+    done <<EOF
+$(iter_vocode_jobs)
 EOF
 }
