@@ -3,8 +3,8 @@
 
 set -eu
 
-if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
-    echo "Usage: $0 <output_dir> <progress_file> <baseline_count> <total_files> [interval_seconds]" >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 6 ]; then
+    echo "Usage: $0 <output_dir> <progress_file> <baseline_count> <total_files> [interval_seconds] [stall_seconds]" >&2
     exit 1
 fi
 
@@ -13,6 +13,7 @@ progress_file="$2"
 baseline_count="$3"
 total_files="$4"
 interval_seconds="${5:-30}"
+stall_seconds="${6:-360}"
 full_scan_interval_seconds=360
 
 mkdir -p "$(dirname "$progress_file")"
@@ -56,7 +57,7 @@ collect_chunk_dir_stats() {
     done
 }
 
-write_progress() {
+compute_progress_fields() {
     refresh_wav_count_if_due
     collect_chunk_dir_stats
     completed_count=$(( current_count - baseline_count ))
@@ -68,9 +69,24 @@ write_progress() {
     fi
     now_epoch=$(date '+%s')
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    seconds_since_last_change='unknown'
+    if [ "$latest_chunk_change_epoch" -gt 0 ]; then
+        seconds_since_last_change=$(( now_epoch - latest_chunk_change_epoch ))
+    fi
+    progress_status='running'
+    if [ "$total_files" -gt 0 ] && [ "$completed_count" -ge "$total_files" ]; then
+        progress_status='done'
+    elif [ "$seconds_since_last_change" != 'unknown' ] && \
+        [ "$seconds_since_last_change" -gt "$stall_seconds" ]; then
+        progress_status='stalled'
+    fi
+}
+
+write_progress() {
+    compute_progress_fields
     tmp_file="${progress_file}.tmp"
     {
-        echo "status: running"
+        echo "status: $progress_status"
         echo "timestamp: $timestamp"
         echo "output_dir: $output_dir"
         echo "wav_files_present: $current_count"
@@ -78,11 +94,7 @@ write_progress() {
         echo "wav_files_written: $completed_count"
         echo "chunk_dir_count: $chunk_dir_count"
         echo "last_wav_change_epoch: $latest_chunk_change_epoch"
-        if [ "$latest_chunk_change_epoch" -gt 0 ]; then
-            echo "seconds_since_last_wav_change: $(( now_epoch - latest_chunk_change_epoch ))"
-        else
-            echo "seconds_since_last_wav_change: unknown"
-        fi
+        echo "seconds_since_last_wav_change: $seconds_since_last_change"
         echo "total_expected: $total_files"
         if [ "$total_files" -gt 0 ]; then
             percentage=$(( completed_count * 100 / total_files ))
@@ -95,19 +107,11 @@ write_progress() {
 
 write_final_progress() {
     current_count=$(count_wav_files)
-    collect_chunk_dir_stats
-    completed_count=$(( current_count - baseline_count ))
-    if [ "$completed_count" -lt 0 ]; then
-        completed_count=0
-    fi
-    if [ "$completed_count" -gt "$total_files" ]; then
-        completed_count="$total_files"
-    fi
-    now_epoch=$(date '+%s')
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    last_full_scan_epoch=0
+    compute_progress_fields
     tmp_file="${progress_file}.tmp"
     {
-        echo "status: done"
+        echo "status: $progress_status"
         echo "timestamp: $timestamp"
         echo "output_dir: $output_dir"
         echo "wav_files_present: $current_count"
@@ -115,11 +119,7 @@ write_final_progress() {
         echo "wav_files_written: $completed_count"
         echo "chunk_dir_count: $chunk_dir_count"
         echo "last_wav_change_epoch: $latest_chunk_change_epoch"
-        if [ "$latest_chunk_change_epoch" -gt 0 ]; then
-            echo "seconds_since_last_wav_change: $(( now_epoch - latest_chunk_change_epoch ))"
-        else
-            echo "seconds_since_last_wav_change: unknown"
-        fi
+        echo "seconds_since_last_wav_change: $seconds_since_last_change"
         echo "total_expected: $total_files"
         if [ "$total_files" -gt 0 ]; then
             percentage=$(( completed_count * 100 / total_files ))
