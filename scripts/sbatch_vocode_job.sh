@@ -11,9 +11,8 @@ set -eu
 : "${JOB_NAME:?JOB_NAME is not set}"
 : "${OUTPUT_DIR:?OUTPUT_DIR is not set}"
 
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
-. "$script_dir/snellius_jobs.sh"
+. "$repo_root/scripts/snellius_jobs.sh"
 load_vocode_job "$JOB_NAME"
 
 "$repo_root/scripts/run_snellius_vocode.sh" \
