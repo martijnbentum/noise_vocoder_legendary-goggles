@@ -182,6 +182,39 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(left, '76a8cbab__example')
         self.assertEqual(right, 'ad21031f__example')
 
+    def test_legacy_output_to_source_filename_maps_legacy_path(self):
+        output_filename = (
+            '/scratch-shared/mbentum1/vocoded_bands-6_spidr/wav/'
+            'cgn_phrases/N00003_fn000021_104__671-119__144'
+            '_vocoded_nbands-6.wav'
+        )
+        source_filename = core.legacy_output_to_source_filename(
+            output_filename,
+            legacy_output_dir='/scratch-shared/mbentum1/'
+            'vocoded_bands-6_spidr/wav',
+            input_dir='/projects/0/prjs1489/data/spidr/wav',
+            n_bands=6,
+        )
+        self.assertEqual(
+            source_filename,
+            '/projects/0/prjs1489/data/spidr/wav/cgn_phrases/'
+            'N00003_fn000021_104__671-119__144.wav',
+        )
+
+    def test_legacy_output_to_source_filename_rejects_wrong_suffix(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            'Legacy output does not end with',
+        ):
+            core.legacy_output_to_source_filename(
+                '/scratch-shared/mbentum1/vocoded_bands-6_spidr/wav/'
+                'cgn_phrases/example_voc6.wav',
+                legacy_output_dir='/scratch-shared/mbentum1/'
+                'vocoded_bands-6_spidr/wav',
+                input_dir='/projects/0/prjs1489/data/spidr/wav',
+                n_bands=6,
+            )
+
     def test_build_output_shard_map_shards_globally(self):
         filenames = [
             core.Path('/tmp/input/flat/a.wav'),

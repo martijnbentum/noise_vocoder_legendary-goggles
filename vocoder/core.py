@@ -513,6 +513,29 @@ def build_output_stem(filename, input_dir = ''):
     return f'{digest}__{path.stem}'
 
 
+def legacy_output_to_source_filename(
+    output_filename,
+    legacy_output_dir,
+    input_dir,
+    n_bands,
+):
+    '''Map one legacy vocoded output path back to its source input file.'''
+    path = Path(output_filename)
+    suffix = f'_vocoded_nbands-{n_bands}.wav'
+    if not path.name.endswith(suffix):
+        raise ValueError(
+            f'Legacy output does not end with {suffix}: {output_filename}'
+        )
+    try:
+        relative_path = path.relative_to(Path(legacy_output_dir))
+    except ValueError as exc:
+        raise ValueError(
+            f'Legacy output is outside {legacy_output_dir}: {output_filename}'
+        ) from exc
+    source_name = path.name[:-len(suffix)] + '.wav'
+    return str(Path(input_dir) / relative_path.parent / source_name)
+
+
 def build_output_shard_map(
     filenames,
     input_dir,

@@ -95,6 +95,10 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
   execute all jobs.
 - `submit_vocode_job.sh <job_name>` resolves a named job, checks the target
   output directory, and submits the generic sbatch runner.
+- `submit_fix_legacy_missing_vocode_job.sh <job_name> <missing_list>`
+  submits a dedicated repair job for missing lists that contain legacy output
+  paths such as `..._vocoded_nbands-6.wav`; it maps those entries back to
+  source inputs and vocodes only the still-missing current outputs.
 - `sbatch_vocode_job.sh` is the generic 64-core Slurm entrypoint that loads
   the named job configuration inside the job.
 - Slurm stdout/stderr files are written to
