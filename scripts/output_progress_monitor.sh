@@ -13,7 +13,7 @@ progress_file="$2"
 baseline_count="$3"
 total_files="$4"
 interval_seconds="${5:-30}"
-full_scan_interval_seconds=180
+full_scan_interval_seconds=360
 
 mkdir -p "$(dirname "$progress_file")"
 
