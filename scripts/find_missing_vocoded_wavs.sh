@@ -1,14 +1,20 @@
 #!/bin/bash
 set -eu
 
-if [ "$#" -ne 3 ]; then
-    echo "Usage: $0 <input_dir> <output_dir> <n_bands>" >&2
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <job_name>" >&2
     exit 1
 fi
 
-input_dir="$1"
-output_dir="$2"
-n_bands="$3"
+job_name="$1"
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd "$script_dir/.." && pwd)
+. "$script_dir/snellius_jobs.sh"
+load_vocode_job "$job_name"
+
+input_dir="/projects/0/prjs1489/data/spidr/wav"
+output_dir="$JOB_OUTPUT_DIR"
+n_bands="$JOB_NBANDS"
 
 if [ ! -d "$input_dir" ]; then
     echo "Input directory does not exist: $input_dir" >&2
@@ -20,13 +26,11 @@ if [ ! -d "$output_dir" ]; then
     exit 1
 fi
 
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(cd "$script_dir/.." && pwd)
 archive_dir="$repo_root/archive"
 mkdir -p "$archive_dir"
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
-output_file="$archive_dir/missing_vocoded_nbands-${n_bands}_${timestamp}.txt"
+output_file="$archive_dir/missing_${job_name}_${timestamp}.txt"
 
 while IFS= read -r input_file; do
     rel_path=${input_file#"$input_dir"/}
