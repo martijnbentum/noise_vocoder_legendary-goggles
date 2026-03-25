@@ -3,8 +3,34 @@
 
 set -eu
 
+cpus=64
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --cpus)
+            if [ "$#" -lt 2 ]; then
+                echo "Missing value for --cpus" >&2
+                exit 1
+            fi
+            cpus="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-    echo "Usage: $0 <sbatch_script> <output_dir> [job_name]" >&2
+    echo "Usage: $0 [--cpus n] <sbatch_script> <output_dir> [job_name]" >&2
     exit 1
 fi
 
@@ -32,12 +58,18 @@ fi
 
 echo "Submitting $sbatch_script"
 echo "output_dir check passed: $output_dir"
+echo "cpus_per_task: $cpus"
 if [ -n "$job_name" ]; then
     sbatch \
         --chdir="$repo_root" \
+        --cpus-per-task="$cpus" \
         --job-name="$job_name" \
         --export=ALL,OUTPUT_DIR="$output_dir",JOB_NAME="$job_name" \
         "$sbatch_script"
     exit 0
 fi
-sbatch --chdir="$repo_root" --export=ALL,OUTPUT_DIR="$output_dir" "$sbatch_script"
+sbatch \
+    --chdir="$repo_root" \
+    --cpus-per-task="$cpus" \
+    --export=ALL,OUTPUT_DIR="$output_dir" \
+    "$sbatch_script"

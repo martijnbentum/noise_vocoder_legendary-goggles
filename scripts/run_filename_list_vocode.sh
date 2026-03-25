@@ -3,8 +3,26 @@
 
 set -eu
 
+cpus=64
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --cpus)
+            if [ "$#" -lt 2 ]; then
+                echo "Missing value for --cpus" >&2
+                exit 1
+            fi
+            cpus="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <job_name> <text_filename>" >&2
+    echo "Usage: $0 [--cpus n] <job_name> <text_filename>" >&2
     exit 1
 fi
 
@@ -24,7 +42,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 env_dir="$repo_root/.venv-snellius"
 input_dir='/projects/0/prjs1489/data/spidr/wav'
-nprocess="${SLURM_CPUS_PER_TASK:-128}"
+nprocess="${SLURM_CPUS_PER_TASK:-$cpus}"
 archive_dir="$repo_root/archive"
 
 . "$script_dir/snellius_jobs.sh"
