@@ -127,14 +127,13 @@ export MISSING_LIST="$missing_list"
 export NPROCESS="$nprocess"
 
 python - <<'PY'
-import multiprocessing
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from vocoder import core
 
-
-WORKER_MAX_TASKS = 100
+FILE_TIMEOUT_SECONDS = 900
 
 
 def load_missing_files(missing_list):
@@ -170,54 +169,31 @@ def main():
         print('No matching missing files remained to process.', flush=True)
         return
 
-    worker_config = {
-        'sample_rate': 16000,
-        'butterworth_order': 4,
-        'match_rms': False,
-        'output_dir': str(output_dir),
-        'input_dir': str(input_dir),
-        'frequencies': core.get_standard_bands(
-            n_bands=n_bands,
-            family=family,
-            key=key,
-        ).tolist(),
-    }
-    tasks = list(core.iter_batch_tasks(missing_files, shard_map))
-    chunksize = core.compute_pool_chunksize(len(tasks), nprocess)
-    failure_path = output_dir / f'repair_failures_{os.environ["JOB_NAME"]}.jsonl'
+    tasks = core.iter_batch_tasks(missing_files, shard_map)
+    args = SimpleNamespace(
+        nprocess=nprocess,
+        sample_rate=16000,
+        butterworth_order=4,
+        match_rms=False,
+        output_dir=str(output_dir),
+        input_dir=str(input_dir),
+        nbands=n_bands,
+        frequency_family=family,
+        frequency_key=key,
+        frequencies=None,
+        metadata_filename='',
+        failure_filename=f'repair_failures_{os.environ["JOB_NAME"]}.jsonl',
+        status_dirname='_worker_status',
+        file_timeout_seconds=FILE_TIMEOUT_SECONDS,
+    )
 
     print(
-        'repair pool launch:',
+        'repair batch launch:',
         f'workers={nprocess}',
-        f'chunksize={chunksize}',
-        f'maxtasksperchild={WORKER_MAX_TASKS}',
+        f'file_timeout_seconds={FILE_TIMEOUT_SECONDS}',
         flush=True,
     )
-    with multiprocessing.Pool(
-        nprocess,
-        maxtasksperchild=WORKER_MAX_TASKS,
-        initializer=core.init_pool_worker,
-        initargs=(worker_config,),
-    ) as pool:
-        processed = 0
-        failures = 0
-        for result in pool.imap_unordered(
-            core.handle_task,
-            tasks,
-            chunksize=chunksize,
-        ):
-            processed += 1
-            if result['status'] != 'ok':
-                failures += 1
-                core.append_metadata(failure_path, result)
-                print(
-                    'repair file failed:',
-                    result['input_filename'],
-                    flush=True,
-                )
-        print(f'repair_processed: {processed}', flush=True)
-        if failures:
-            raise RuntimeError(f'Repair failed for {failures} files')
+    core.run_parallel_batch(args, tasks, len(missing_files))
 
 
 main()

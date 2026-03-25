@@ -1,3 +1,5 @@
+import importlib
+import json
 import tempfile
 import time
 import unittest
@@ -238,11 +240,6 @@ class HandleArgsTests(unittest.TestCase):
             },
         )
 
-    def test_compute_pool_chunksize_uses_smaller_batches(self):
-        self.assertEqual(core.compute_pool_chunksize(0, 64), 1)
-        self.assertEqual(core.compute_pool_chunksize(100, 10), 1)
-        self.assertEqual(core.compute_pool_chunksize(50000, 64), 16)
-
     def test_append_metadata_writes_jsonl_records(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             metadata_path = core.Path(temp_dir) / 'meta' / 'batch.jsonl'
@@ -271,27 +268,15 @@ class HandleArgsTests(unittest.TestCase):
                 {
                     'filename': '/tmp/input/a.wav',
                     'output_shard_dir': '',
+                    'retry_count': 0,
                 },
                 {
                     'filename': '/tmp/input/b.wav',
                     'output_shard_dir': 'chunk_00003',
+                    'retry_count': 0,
                 },
             ],
         )
-
-    def test_init_pool_worker_reuses_frequency_array(self):
-        worker_config = {
-            'sample_rate': 16000,
-            'butterworth_order': 4,
-            'match_rms': False,
-            'output_dir': '/tmp/output',
-            'input_dir': '/tmp/input',
-            'frequencies': [50, 100, 200],
-        }
-        core.init_pool_worker(worker_config)
-        config, frequencies = core.resolve_task_config({'filename': 'demo.wav'})
-        self.assertEqual(config['sample_rate'], 16000)
-        np.testing.assert_array_equal(frequencies, np.array([50, 100, 200]))
 
     def test_make_failure_result_is_json_serializable(self):
         try:
@@ -310,27 +295,250 @@ class HandleArgsTests(unittest.TestCase):
         self.assertIsInstance(result['elapsed_seconds'], float)
         self.assertEqual(result['worker_pid'], 123)
 
-    def test_handle_task_returns_failure_result(self):
+    def test_run_task_subprocess_writes_done_status(self):
         task = {
-            'filename': 'broken.wav',
-            'worker_config': {
-                'sample_rate': 16000,
-                'butterworth_order': 4,
-                'match_rms': False,
-                'output_dir': '',
-                'input_dir': '',
-                'frequencies': [50, 100, 200],
-            },
+            'filename': '/tmp/input/example.wav',
+            'output_shard_dir': 'chunk_00000',
         }
+        worker_config = {
+            'sample_rate': 16000,
+            'butterworth_order': 4,
+            'match_rms': False,
+            'output_dir': '/tmp/output',
+            'input_dir': '/tmp/input',
+            'frequencies': [50, 100, 200],
+        }
+
+        class FakeConn:
+            def __init__(self):
+                self.payload = None
+                self.closed = False
+
+            def send(self, value):
+                self.payload = value
+
+            def close(self):
+                self.closed = True
+
+        class FakeVocoder:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.signal_intensity = 1.25
+                self.vocoded_intensity = 2.5
+                self.n_bands = 2
+
+            def write_vocoded(self):
+                return '/tmp/output/chunk_00000/example_voc2.wav'
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            conn = FakeConn()
+            with mock.patch('vocoder.core.Vocoder', FakeVocoder):
+                core.run_task_subprocess(
+                    task,
+                    worker_config,
+                    conn,
+                    temp_dir,
+                    7,
+                )
+            status_files = list(core.Path(temp_dir).glob('task_00007_pid_*.json'))
+            self.assertEqual(len(status_files), 1)
+            status = json.loads(status_files[0].read_text())
+        self.assertEqual(status['phase'], 'done')
+        self.assertEqual(status['input_filename'], '/tmp/input/example.wav')
+        self.assertEqual(
+            status['output_filename'],
+            '/tmp/output/chunk_00000/example_voc2.wav',
+        )
+        self.assertEqual(conn.payload['status'], 'ok')
+        self.assertTrue(conn.closed)
+
+    def test_run_parallel_batch_times_out_stuck_child(self):
+        args = SimpleNamespace(
+            nprocess=1,
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            output_dir='',
+            input_dir='',
+            nbands=6,
+            frequency_family='default_family',
+            frequency_key=None,
+            frequencies=None,
+            metadata_filename='',
+            failure_filename='',
+            status_dirname='',
+            file_timeout_seconds=0,
+        )
+
+        class FakeConn:
+            def close(self):
+                return None
+
+        class FakeProcess:
+            def __init__(self, target, args):
+                self.target = target
+                self.args = args
+                self.pid = 4321
+                self.exitcode = None
+                self._alive = False
+
+            def start(self):
+                self._alive = True
+
+            def is_alive(self):
+                return self._alive
+
+            def join(self, timeout = None):
+                return None
+
+            def terminate(self):
+                self._alive = False
+                self.exitcode = -15
+
+            def kill(self):
+                self._alive = False
+                self.exitcode = -9
+
         with mock.patch(
-            'vocoder.core.Vocoder',
-            side_effect=RuntimeError('test failure'),
+            'vocoder.core.multiprocessing.Pipe',
+            return_value=(FakeConn(), mock.Mock()),
         ):
-            result = core.handle_task(task)
-        self.assertEqual(result['status'], 'error')
-        self.assertEqual(result['input_filename'], 'broken.wav')
-        self.assertEqual(result['error_type'], 'RuntimeError')
-        self.assertIn('test failure', result['error_message'])
+            with mock.patch(
+                'vocoder.core.multiprocessing.Process',
+                side_effect=FakeProcess,
+            ):
+                with mock.patch('vocoder.core.wait', return_value=[]):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        'Batch failed for 1 files',
+                    ):
+                        core.run_parallel_batch(
+                            args,
+                            iter([{'filename': 'stuck.wav'}]),
+                            1,
+                        )
+
+    def test_run_parallel_batch_retries_timeout_once(self):
+        args = SimpleNamespace(
+            nprocess=1,
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            output_dir='',
+            input_dir='',
+            nbands=6,
+            frequency_family='default_family',
+            frequency_key=None,
+            frequencies=None,
+            metadata_filename='',
+            failure_filename='',
+            status_dirname='',
+            file_timeout_seconds=0,
+        )
+
+        class FakeConn:
+            def __init__(self):
+                self.recv_calls = 0
+
+            def recv(self):
+                self.recv_calls += 1
+                return {
+                    'status': 'ok',
+                    'input_filename': 'retry.wav',
+                    'output_filename': 'retry_voc6.wav',
+                    'elapsed_seconds': 0.1,
+                    'signal_intensity_db': 1.0,
+                    'vocoded_intensity_db': 1.0,
+                    'n_bands': 6,
+                    'worker_pid': 4321,
+                }
+
+            def close(self):
+                return None
+
+        class FakeProcess:
+            pid_counter = 5000
+
+            def __init__(self, target, args):
+                self.target = target
+                self.args = args
+                self.pid = FakeProcess.pid_counter
+                FakeProcess.pid_counter += 1
+                self.exitcode = None
+                self._alive = False
+
+            def start(self):
+                self._alive = True
+
+            def is_alive(self):
+                return self._alive
+
+            def join(self, timeout = None):
+                return None
+
+            def terminate(self):
+                self._alive = False
+                self.exitcode = -15
+
+            def kill(self):
+                self._alive = False
+                self.exitcode = -9
+
+        pipe_calls = []
+
+        def fake_pipe(duplex = False):
+            conn = FakeConn()
+            pipe_calls.append(conn)
+            return conn, mock.Mock()
+
+        def fake_wait(conns, timeout = None):
+            if len(pipe_calls) < 2 or conns[0] is pipe_calls[0]:
+                return []
+            return [pipe_calls[1]]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = core.Path(temp_dir) / 'retry_voc6.wav'
+            output_file.write_bytes(b'partial')
+            args.output_dir = temp_dir
+            with mock.patch(
+                'vocoder.core.multiprocessing.Pipe',
+                side_effect=fake_pipe,
+            ):
+                with mock.patch(
+                    'vocoder.core.multiprocessing.Process',
+                    side_effect=FakeProcess,
+                ):
+                    with mock.patch(
+                        'vocoder.core.wait',
+                        side_effect=fake_wait,
+                    ):
+                        with mock.patch(
+                            'vocoder.core.get_output_filename',
+                            return_value=str(output_file),
+                        ):
+                            core.run_parallel_batch(
+                                args,
+                                iter([{
+                                    'filename': 'retry.wav',
+                                    'output_shard_dir': '',
+                                    'retry_count': 0,
+                                }]),
+                                1,
+                            )
+            self.assertFalse(output_file.exists())
+
+    def test_reloading_core_does_not_import_plot_module(self):
+        original_import = __import__
+
+        def guarded_import(name, globals = None, locals = None,
+            fromlist = (), level = 0):
+            if name == 'vocoder.plot' or name.startswith('matplotlib'):
+                raise AssertionError(f'unexpected import: {name}')
+            return original_import(name, globals, locals, fromlist, level)
+
+        with mock.patch('builtins.__import__', side_effect=guarded_import):
+            reloaded_core = importlib.reload(core)
+        self.assertFalse(hasattr(reloaded_core, 'plot'))
 
 
 class FrequencyBandTests(unittest.TestCase):

@@ -1,7 +1,9 @@
 import argparse
+from collections import deque
 import hashlib
 import json
 import multiprocessing
+from multiprocessing.connection import wait
 import os
 from pathlib import Path
 import time
@@ -10,7 +12,6 @@ import traceback
 import numpy as np
 
 from . import audio
-from . import plot
 from . import signal_processing as sp
 
 '''
@@ -96,8 +97,6 @@ https://pmc.ncbi.nlm.nih.gov/articles/PMC2730710/pdf/JASMAN-000126-000792_1.pdf
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FREQUENCY_CONFIG_FILENAME = REPO_ROOT / 'config' / 'frequency_bands.json'
 DEFAULT_MAX_OUTPUT_FILES_PER_DIR = 10000
-_POOL_WORKER_CONFIG = None
-_POOL_FREQUENCIES = None
 
 
 def load_frequency_config(filename = FREQUENCY_CONFIG_FILENAME):
@@ -213,6 +212,7 @@ class Vocoder:
 
     def plot_signal(self, show_envelope = True):
         '''plot the signal'''
+        from . import plot
         envelope = self.envelope if show_envelope else None
         plot.plot_signal(self.signal, self.sample_rate, title=self.path.name,
             envelope = envelope)
@@ -241,10 +241,12 @@ class Vocoder:
 
     def plot_compare_spectrogram(self):
         '''plot the spectrogram of the original and vocoded signal'''
+        from . import plot
         plot.compare_spectrogram(self.signal, self.vocoded_signal, 
             sample_rate=self.sample_rate, names = ['Original', 'Vocoded'])
 
     def plot_stacked_filtered_sigals(self, show_envelope = True):
+        from . import plot
         plot_name = f'{self.path.name} - filtered signals'
         signals = [b.filtered_signal for b in self.bands]
         names = [b.__repr__() for b in self.bands]
@@ -253,6 +255,7 @@ class Vocoder:
             sample_rate=self.sample_rate, title=plot_name)
 
     def plot_stacked_vocoded_sigals(self, show_envelope = True):
+        from . import plot
         plot_name = f'{self.path.name} - vocoded signals'
         signals = [b.vocoded_signal for b in self.bands]
         names = [b.__repr__() for b in self.bands]
@@ -261,6 +264,7 @@ class Vocoder:
             sample_rate=self.sample_rate, title=plot_name)
 
     def plot_grid_filtered_vocoded_sigals(self, show_envelope = True):
+        from . import plot
         plot_name = f'{self.path.name} - filtered and vocoded signals'
         left_side_signals = [b.filtered_signal for b in self.bands]
         right_side_signals = [b.vocoded_signal for b in self.bands]
@@ -275,6 +279,7 @@ class Vocoder:
             sample_rate=self.sample_rate)
 
     def plot_original_vocoded_signals(self):
+        from . import plot
         plot_name = f'{self.path.name} - original and vocoded signals'
         left_side_signals = [self.signal]
         right_side_signals = [self.vocoded_signal]
@@ -351,12 +356,14 @@ class Frequency_band:
 
     def plot_compare_spectrogram(self):
         '''plot the spectrogram of the original and vocoded signal'''
+        from . import plot
         n = self.__repr__()
         plot.compare_spectrogram(self.filtered_signal, self.vocoded_signal, 
             sample_rate=self.sample_rate, names = [f'Filtered {n}', 'Vocoded'])
 
     def plot_filtered_signal(self, show_envelope = True):
         '''plot the signal'''
+        from . import plot
         envelope = self.envelope if show_envelope else None
         plot.plot_signal(self.filtered_signal, self.sample_rate, 
             title=f'{self.path.name} - {self.__repr__()} filtered',
@@ -364,12 +371,14 @@ class Frequency_band:
 
     def plot_vocoded_signal(self, show_envelope = True):
         '''plot the signal'''
+        from . import plot
         envelope = self.envelope if show_envelope else None
         plot.plot_signal(self.vocoded_signal, self.sample_rate, 
             title=f'{self.path.name} - {self.__repr__()} vocoded',
             envelope = envelope)
 
     def plot_original_vocoded_signals(self):
+        from . import plot
         plot_name = f'{self.path.name} - filtered and vocoded signals'
         left_side_signals = [self.signal]
         right_side_signals = [self.vocoded_signal]
@@ -491,6 +500,61 @@ def get_failure_path(output_dir, failure_filename):
     return get_metadata_path(output_dir, failure_filename)
 
 
+def get_status_dir(output_dir, status_dirname):
+    '''Return the directory used for active worker status files.'''
+    if not status_dirname:
+        return None
+    if output_dir:
+        status_dir = Path(output_dir) / status_dirname
+    else:
+        status_dir = Path(status_dirname)
+    status_dir.mkdir(parents=True, exist_ok=True)
+    return status_dir
+
+
+def get_status_path(status_dir, worker_pid, task_id):
+    '''Return the status filename for one child process.'''
+    if not status_dir:
+        return None
+    return Path(status_dir) / f'task_{task_id:05d}_pid_{worker_pid}.json'
+
+
+def write_worker_status(
+    status_path,
+    phase,
+    filename,
+    started_at,
+    output_filename = '',
+):
+    '''Write one atomic worker status record.'''
+    if not status_path:
+        return
+    now = time.time()
+    payload = {
+        'pid': os.getpid(),
+        'input_filename': str(filename),
+        'output_filename': str(output_filename),
+        'phase': phase,
+        'started_at': started_at,
+        'updated_at': now,
+        'elapsed_seconds': float(round(now - started_at, 4)),
+    }
+    temp_path = status_path.with_suffix('.tmp')
+    with temp_path.open('w') as fout:
+        json.dump(payload, fout)
+    temp_path.replace(status_path)
+
+
+def remove_worker_status(status_path):
+    '''Remove a worker status file if it still exists.'''
+    if not status_path:
+        return
+    try:
+        Path(status_path).unlink()
+    except FileNotFoundError:
+        return
+
+
 def make_output_shard_name(index):
     '''Return the stable shard name for a zero-based shard index.'''
     return f'chunk_{index:05d}'
@@ -553,37 +617,12 @@ def build_output_shard_map(
     return shard_map
 
 
-def compute_pool_chunksize(total_files, nprocess):
-    '''Return a modest chunksize for throughput without long hidden stalls.'''
-    if total_files < 1 or nprocess < 1:
-        return 1
-    return max(1, min(16, total_files // (nprocess * 8) or 1))
-
-
-def init_pool_worker(worker_config):
-    '''Initialize one worker process with shared batch config.'''
-    global _POOL_WORKER_CONFIG
-    global _POOL_FREQUENCIES
-    _POOL_WORKER_CONFIG = dict(worker_config)
-    _POOL_FREQUENCIES = np.array(worker_config['frequencies'])
-
-
-def resolve_task_config(task):
-    '''Return config for one task, preferring process-global worker state.'''
-    if 'worker_config' in task:
-        config = task['worker_config']
-        return config, np.array(config['frequencies'])
-    if _POOL_WORKER_CONFIG is None or _POOL_FREQUENCIES is None:
-        raise ValueError('Worker config is not initialized')
-    return _POOL_WORKER_CONFIG, _POOL_FREQUENCIES
-
-
 def run_parallel_batch(args, argss, total_files):
-    '''Run a batch with compact error reporting.'''
+    '''Run a batch with one subprocess per file and timeout isolation.'''
     processed = 0
     failures = 0
+    retries = 0
     start_time = time.time()
-    chunksize = compute_pool_chunksize(total_files, args.nprocess)
     metadata_path = get_metadata_path(
         getattr(args, 'output_dir', ''),
         getattr(args, 'metadata_filename', ''),
@@ -592,48 +631,180 @@ def run_parallel_batch(args, argss, total_files):
         getattr(args, 'output_dir', ''),
         getattr(args, 'failure_filename', ''),
     )
+    status_dir = get_status_dir(
+        getattr(args, 'output_dir', ''),
+        getattr(args, 'status_dirname', '_worker_status'),
+    )
+    file_timeout_seconds = getattr(args, 'file_timeout_seconds', 900)
     print(
-        'pool launch:',
+        'batch launch:',
         f'workers={args.nprocess}',
-        f'chunksize={chunksize}',
-        f'maxtasksperchild={args.worker_max_tasks}',
+        f'file_timeout_seconds={file_timeout_seconds}',
         flush=True,
     )
     if metadata_path:
         print(f'metadata_log: {metadata_path}', flush=True)
     if failure_path:
         print(f'failure_log: {failure_path}', flush=True)
+    if status_dir:
+        print(f'status_dir: {status_dir}', flush=True)
     worker_config = build_worker_config(args)
-    try:
-        with multiprocessing.Pool(
-            args.nprocess,
-            maxtasksperchild=args.worker_max_tasks,
-            initializer=init_pool_worker,
-            initargs=(worker_config,),
-        ) as pool:
-            for result in pool.imap_unordered(
-                handle_task,
-                argss,
-                chunksize=chunksize,
-            ):
-                processed += 1
-                if result['status'] == 'ok':
-                    append_metadata(metadata_path, result)
-                else:
-                    failures += 1
-                    append_metadata(failure_path, result)
-                    print(
-                        'file failed:',
-                        result['input_filename'],
-                        flush=True,
-                    )
-    except Exception:
-        raise
+    active_jobs = {}
+    task_iter = iter(argss)
+    retry_tasks = deque()
+    task_index = 0
+
+    def finalize_result(result):
+        nonlocal processed
+        nonlocal failures
+        processed += 1
+        if result['status'] == 'ok':
+            append_metadata(metadata_path, result)
+            return
+        failures += 1
+        append_metadata(failure_path, result)
+        print(
+            'file failed:',
+            result['input_filename'],
+            flush=True,
+        )
+
+    def expected_output_filename(task):
+        return get_output_filename(
+            task['filename'],
+            output_dir=worker_config['output_dir'],
+            input_dir=worker_config['input_dir'],
+            output_shard_dir=task.get('output_shard_dir', ''),
+            n_bands=len(worker_config['frequencies']) - 1,
+        )
+
+    def remove_task_output(task):
+        output_filename = expected_output_filename(task)
+        try:
+            Path(output_filename).unlink()
+        except FileNotFoundError:
+            return
+
+    def cleanup_job(job):
+        remove_worker_status(job['status_path'])
+        job['parent_conn'].close()
+        if job['process'].is_alive():
+            job['process'].join(timeout=0.1)
+
+    def launch_job(task, task_id):
+        parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
+        process = multiprocessing.Process(
+            target=run_task_subprocess,
+            args=(
+                task,
+                worker_config,
+                child_conn,
+                str(status_dir) if status_dir else '',
+                task_id,
+            ),
+        )
+        process.start()
+        child_conn.close()
+        status_path = get_status_path(status_dir, process.pid, task_id)
+        active_jobs[parent_conn] = {
+            'task': dict(task),
+            'filename': task['filename'],
+            'parent_conn': parent_conn,
+            'process': process,
+            'started_at': time.time(),
+            'task_id': task_id,
+            'status_path': status_path,
+        }
+
+    while True:
+        while len(active_jobs) < args.nprocess:
+            if retry_tasks:
+                task = retry_tasks.popleft()
+            else:
+                try:
+                    task = next(task_iter)
+                except StopIteration:
+                    break
+            launch_job(task, task_index)
+            task_index += 1
+        if not active_jobs:
+            break
+        ready_conns = wait(list(active_jobs), timeout=0.2)
+        handled_conns = set()
+        for conn in ready_conns:
+            job = active_jobs.pop(conn)
+            try:
+                result = conn.recv()
+            except EOFError:
+                exc = RuntimeError('Worker exited without sending a result')
+                result = make_failure_result(
+                    job['filename'],
+                    time.time() - job['started_at'],
+                    job['process'].pid,
+                    exc,
+                )
+            finalize_result(result)
+            job['process'].join(timeout=0.1)
+            cleanup_job(job)
+            handled_conns.add(conn)
+        now = time.time()
+        for conn, job in list(active_jobs.items()):
+            if conn in handled_conns:
+                continue
+            if job['process'].exitcode is not None:
+                active_jobs.pop(conn)
+                exc = RuntimeError(
+                    'Worker exited without sending a result'
+                )
+                result = make_failure_result(
+                    job['filename'],
+                    now - job['started_at'],
+                    job['process'].pid,
+                    exc,
+                )
+                finalize_result(result)
+                cleanup_job(job)
+                continue
+            if now - job['started_at'] <= file_timeout_seconds:
+                continue
+            active_jobs.pop(conn)
+            job['process'].terminate()
+            job['process'].join(timeout=1.0)
+            if job['process'].is_alive():
+                job['process'].kill()
+                job['process'].join(timeout=1.0)
+            task = job['task']
+            retry_count = task.get('retry_count', 0)
+            if retry_count < 1:
+                retries += 1
+                remove_task_output(task)
+                retry_task = dict(task)
+                retry_task['retry_count'] = retry_count + 1
+                retry_tasks.append(retry_task)
+                print(
+                    'retrying timed out file:',
+                    job['filename'],
+                    flush=True,
+                )
+            else:
+                exc = TimeoutError(
+                    'File processing exceeded '
+                    f'{file_timeout_seconds} seconds after retry'
+                )
+                result = make_failure_result(
+                    job['filename'],
+                    now - job['started_at'],
+                    job['process'].pid,
+                    exc,
+                )
+                finalize_result(result)
+            cleanup_job(job)
     elapsed = time.time() - start_time
     rate = processed / elapsed if elapsed > 0 else 0.0
     print(
         'batch complete:',
         f'processed={processed}',
+        f'retries={retries}',
         f'elapsed={elapsed:.1f}s',
         f'rate={rate:.2f} files/s',
         flush=True,
@@ -664,7 +835,90 @@ def iter_batch_tasks(filenames, output_shard_map = None):
         yield {
             'filename': str(filename),
             'output_shard_dir': output_shard_map.get(str(filename), ''),
+            'retry_count': 0,
         }
+
+
+def run_task_subprocess(
+    task,
+    worker_config,
+    result_conn,
+    status_dir,
+    task_id,
+):
+    '''Run one file task inside a short-lived subprocess.'''
+    started_at = time.time()
+    worker_pid = os.getpid()
+    status_path = get_status_path(status_dir, worker_pid, task_id)
+    filename = task['filename']
+    output_shard_dir = task.get('output_shard_dir', '')
+    frequencies = np.array(worker_config['frequencies'])
+    try:
+        write_worker_status(
+            status_path,
+            'started',
+            filename,
+            started_at,
+        )
+        vocoder = Vocoder(
+            filename=filename,
+            sample_rate=worker_config['sample_rate'],
+            butterworth_order=worker_config['butterworth_order'],
+            match_rms=worker_config['match_rms'],
+            frequencies=frequencies,
+            output_dir=worker_config['output_dir'],
+            input_dir=worker_config['input_dir'],
+            output_shard_dir=output_shard_dir,
+        )
+        output_filename = get_output_filename(
+            filename,
+            output_dir=worker_config['output_dir'],
+            input_dir=worker_config['input_dir'],
+            output_shard_dir=output_shard_dir,
+            n_bands=len(frequencies) - 1,
+        )
+        write_worker_status(
+            status_path,
+            'writing',
+            filename,
+            started_at,
+            output_filename=output_filename,
+        )
+        output_filename = vocoder.write_vocoded()
+        result = make_success_result(
+            filename,
+            output_filename,
+            time.time() - started_at,
+            vocoder.signal_intensity,
+            vocoder.vocoded_intensity,
+            vocoder.n_bands,
+        )
+        result['worker_pid'] = int(worker_pid)
+        write_worker_status(
+            status_path,
+            'done',
+            filename,
+            started_at,
+            output_filename=output_filename,
+        )
+        result_conn.send(result)
+    except Exception as exc:
+        write_worker_status(
+            status_path,
+            'error',
+            filename,
+            started_at,
+        )
+        result_conn.send(
+            make_failure_result(
+                filename,
+                time.time() - started_at,
+                worker_pid,
+                exc,
+            )
+        )
+    finally:
+        result_conn.close()
 
 
 def make_success_result(
@@ -759,44 +1013,6 @@ def handle_filename(args):
     )
 
 
-def handle_task(task):
-    '''Process one pooled batch task and return a JSON-safe result.'''
-    start_time = time.time()
-    worker_pid = os.getpid()
-    filename = task['filename']
-    output_shard_dir = task.get('output_shard_dir', '')
-    config, frequencies = resolve_task_config(task)
-    try:
-        vocoder = Vocoder(
-            filename=filename,
-            sample_rate=config['sample_rate'],
-            butterworth_order=config['butterworth_order'],
-            match_rms=config['match_rms'],
-            frequencies=frequencies,
-            output_dir=config['output_dir'],
-            input_dir=config['input_dir'],
-            output_shard_dir=output_shard_dir,
-        )
-        output_filename = vocoder.write_vocoded()
-        result = make_success_result(
-            filename,
-            output_filename,
-            time.time() - start_time,
-            vocoder.signal_intensity,
-            vocoder.vocoded_intensity,
-            vocoder.n_bands,
-        )
-        result['worker_pid'] = int(worker_pid)
-        return result
-    except Exception as exc:
-        return make_failure_result(
-            filename,
-            time.time() - start_time,
-            worker_pid,
-            exc,
-        )
-
-
 def build_parser():
     parser = argparse.ArgumentParser(description='Vocoder')
     parser.add_argument('--filename', type=str, help='audio file to vocode')
@@ -822,14 +1038,17 @@ def build_parser():
         help='input directory for the audio files')
     parser.add_argument('--nprocess', type=int, default=1,
         help='number of processes to use for vocoding')
-    parser.add_argument('--worker_max_tasks', type=int, default=100,
-        help='restart worker processes after this many files')
+    parser.add_argument('--file_timeout_seconds', type=int, default=900,
+        help='hard timeout per file when running batch processing')
     parser.add_argument('--metadata_filename', type=str,
         default='',
         help='jsonl file for per-file batch metadata, relative to output_dir')
     parser.add_argument('--failure_filename', type=str,
         default='vocoder_failures.jsonl',
         help='jsonl file for per-file batch failures, relative to output_dir')
+    parser.add_argument('--status_dirname', type=str,
+        default='_worker_status',
+        help='directory for active per-file worker status json files')
     parser.add_argument('--max_output_files_per_dir', type=int,
         default=DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
         help='maximum wav files per output directory before sharding')

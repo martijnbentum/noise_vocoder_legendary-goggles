@@ -6,7 +6,7 @@ noise-vocoded output, and plotting the result.
 
 ## Install
 ```bash
-pip install git+https://git@github.com/martijnbentum/vocoder.git
+pip install git+https://git@github.com/martijnbentum/noise_vocoder_legendary-goggles.git
 ```
 
 ## Layout
@@ -62,10 +62,14 @@ python -m vocoder --input_dir examples --nbands 4 --nprocess 2
 ```
 
 For large directory runs, the CLI now:
-- preserves the input subdirectory layout inside `--output_dir`
-- prints compact progress lines instead of one verbose block per file
+- runs each file in its own subprocess for better isolation
+- can fail one stuck file after `--file_timeout_seconds` without wedging the
+  whole batch
+- retries one timed-out file once after removing its expected output file
 - can optionally write per-file records to a JSONL metadata file with
   `--metadata_filename batch.jsonl`
+- writes active worker status JSON files under
+  `--status_dirname` inside `--output_dir`
 
 ## Dependencies
 The code currently depends on these Python packages:
@@ -104,8 +108,8 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
 - Slurm stdout/stderr files are written to
   [`slurm_out/`](/Users/martijn.bentum/vocoder/repo/slurm_out).
 - Batch progress is written to `archive/progress_<slurm_job_id>.txt` by the
-  parent Python process, so the `.out` log stays compact and there is no
-  separate filesystem-scanning sidecar.
+  shell-side monitor, while active file-level worker status is written by
+  Python under `_worker_status/` in the output directory.
 - If a running job stalls and `seconds_since_last_wav_change` exceeds 360
   while progress is still below `100%`, the main job submits one repair job
   automatically and then stops itself.
