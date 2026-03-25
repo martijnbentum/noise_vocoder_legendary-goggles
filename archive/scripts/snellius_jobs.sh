@@ -2,7 +2,7 @@
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     echo "This script only defines Snellius job metadata." >&2
-    echo "Use ./scripts/submit_vocode_job.sh --list to inspect jobs." >&2
+    echo "Use ./archive/scripts/submit_vocode_job.sh --list to inspect jobs." >&2
     exit 1
 fi
 

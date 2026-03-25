@@ -32,4 +32,4 @@ sbatch \
     --chdir="$repo_root" \
     --job-name="${job_name}_legacy_fix" \
     --export=ALL,JOB_NAME="$job_name",MISSING_LIST="$missing_list" \
-    "$repo_root/scripts/sbatch_fix_legacy_missing_vocode_job.sh"
+    "$repo_root/archive/scripts/sbatch_fix_legacy_missing_vocode_job.sh"

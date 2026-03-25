@@ -13,6 +13,6 @@ set -eu
 
 repo_root="${SLURM_SUBMIT_DIR:-$PWD}"
 
-"$repo_root/scripts/run_fix_legacy_missing_vocode.sh" \
+"$repo_root/archive/scripts/run_fix_legacy_missing_vocode.sh" \
     "$JOB_NAME" \
     "$MISSING_LIST"

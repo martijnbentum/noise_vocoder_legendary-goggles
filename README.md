@@ -97,7 +97,8 @@ The default config file is bundled inside the installed `vocoder` package, so
 that came from an older release that still looked for a repo-level config dir.
 
 ## Snellius Scripts
-Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/scripts):
+Snellius helper scripts live in
+[`archive/scripts/`](/Users/martijn.bentum/vocoder/repo/archive/scripts):
 - `build_snellius_env.sh` creates the Python environment with the required
   module stack.
 - `snellius_jobs.sh` only defines the named vocoding jobs and their output
@@ -123,26 +124,26 @@ Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/
 Example submissions:
 ```bash
 # Show all available named jobs.
-./scripts/submit_vocode_job.sh --list
+./archive/scripts/submit_vocode_job.sh --list
 
 # Submit a named job through the generic submit path.
-./scripts/submit_vocode_job.sh default_4_band
-./scripts/submit_vocode_job.sh default_6_band
-./scripts/submit_vocode_job.sh default_8_band
-./scripts/submit_vocode_job.sh default_16_band
-./scripts/submit_vocode_job.sh speech_weighted_8_band
+./archive/scripts/submit_vocode_job.sh default_4_band
+./archive/scripts/submit_vocode_job.sh default_6_band
+./archive/scripts/submit_vocode_job.sh default_8_band
+./archive/scripts/submit_vocode_job.sh default_16_band
+./archive/scripts/submit_vocode_job.sh speech_weighted_8_band
 ```
 
 Example repair commands:
 ```bash
 # Submit a repair job for one named batch.
-./scripts/submit_repair_vocode_job.sh default_4_band
+./archive/scripts/submit_repair_vocode_job.sh default_4_band
 
 # Build the missing-file list explicitly for inspection.
-./scripts/find_missing_vocoded_wavs.sh default_4_band
+./archive/scripts/find_missing_vocoded_wavs.sh default_4_band
 
 # Run the repair flow directly inside an allocation.
-./scripts/run_repair_vocode.sh default_4_band
+./archive/scripts/run_repair_vocode.sh default_4_band
 ```
 
 The Snellius runner uses unbuffered Python output for startup, failures, and a

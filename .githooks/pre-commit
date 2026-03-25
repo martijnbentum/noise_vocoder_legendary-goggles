@@ -3,5 +3,6 @@ set -eu
 
 repo_root=$(git rev-parse --show-toplevel)
 
-python3 "$repo_root/scripts/bump_version.py" "$repo_root/pyproject.toml"
+python3 "$repo_root/archive/scripts/bump_version.py" \
+    "$repo_root/pyproject.toml"
 git add "$repo_root/pyproject.toml"

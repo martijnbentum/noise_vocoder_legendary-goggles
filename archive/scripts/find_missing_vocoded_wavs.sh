@@ -12,45 +12,49 @@ repo_root=$(cd "$script_dir/.." && pwd)
 . "$script_dir/snellius_jobs.sh"
 load_vocode_job "$job_name"
 
-input_dir="/projects/0/prjs1489/data/spidr/wav"
+input_dir='/projects/0/prjs1489/data/spidr/wav'
 output_dir="$JOB_OUTPUT_DIR"
-n_bands="$JOB_NBANDS"
-max_files_per_output_dir=10000
-
-if [ ! -d "$input_dir" ]; then
-    echo "Input directory does not exist: $input_dir" >&2
-    exit 1
-fi
-
-if [ ! -d "$output_dir" ]; then
-    echo "Output directory does not exist: $output_dir" >&2
-    exit 1
-fi
-
 archive_dir="$repo_root/archive"
+job_id="${SLURM_JOB_ID:-manual}"
+missing_file="$archive_dir/missing_${job_name}_${job_id}.txt"
+
 mkdir -p "$archive_dir"
 
-timestamp=$(date +"%Y%m%d_%H%M%S")
-output_file="$archive_dir/missing_${job_name}_${timestamp}.txt"
+python - "$input_dir" "$output_dir" "$JOB_NBANDS" "$missing_file" <<'PY'
+import sys
+from pathlib import Path
 
-file_index=0
-while IFS= read -r input_file; do
-    rel_path=${input_file#"$input_dir"/}
-    base_name=$(basename "$rel_path" .wav)
-    hash_prefix=$(printf '%s' "$rel_path" | shasum | cut -c1-8)
-    expected_name="${hash_prefix}__${base_name}_voc${n_bands}.wav"
-    shard_index=$(( file_index / max_files_per_output_dir ))
-    shard_dir=$(printf 'chunk_%05d' "$shard_index")
-    expected_dir="${output_dir%/}/$shard_dir"
-    expected_file="$expected_dir/$expected_name"
-    if [ ! -f "$expected_file" ]; then
-        printf '%s\n' "$expected_file" >> "$output_file"
-    fi
-    file_index=$(( file_index + 1 ))
-done < <(find "$input_dir" -type f -name '*.wav' | sort)
+from vocoder import file_io
 
-if [ ! -f "$output_file" ]; then
-    : > "$output_file"
-fi
 
-echo "$output_file"
+input_dir = Path(sys.argv[1])
+output_dir = Path(sys.argv[2])
+n_bands = int(sys.argv[3])
+missing_file = Path(sys.argv[4])
+
+input_files = sorted(input_dir.rglob('*.wav'))
+if not input_files:
+    raise ValueError(f'No wav files found in input_dir: {input_dir}')
+
+shard_map = file_io.build_output_shard_map(input_files, input_dir)
+missing = []
+for input_file in input_files:
+    output_filename = Path(
+        file_io.get_output_filename(
+            str(input_file),
+            output_dir=str(output_dir),
+            input_dir=str(input_dir),
+            output_shard_dir=shard_map[str(input_file)],
+            n_bands=n_bands,
+        )
+    )
+    if not output_filename.exists():
+        missing.append(str(input_file))
+
+missing_file.parent.mkdir(parents=True, exist_ok=True)
+with missing_file.open('w') as fout:
+    for filename in missing:
+        fout.write(f'{filename}\n')
+PY
+
+echo "$missing_file"
