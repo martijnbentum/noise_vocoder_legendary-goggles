@@ -21,7 +21,9 @@ pip install git+https://git@github.com/martijnbentum/noise_vocoder_legendary-gog
 └── vocoder
     ├── __init__.py
     ├── audio.py
+    ├── batch.py
     ├── core.py
+    ├── file_io.py
     ├── plot.py
     └── signal_processing.py
 ```
@@ -29,7 +31,7 @@ pip install git+https://git@github.com/martijnbentum/noise_vocoder_legendary-gog
 ## Examples
 Create a vocoded file from Python:
 ```python
-from vocoder.core import Vocoder
+from vocoder.vocoder import Vocoder
 
 vocoder = Vocoder(filename='clear.wav', sample_rate=16000)
 output_filename = vocoder.write_vocoded()
@@ -40,7 +42,7 @@ Use custom bands:
 ```python
 import numpy as np
 
-from vocoder.core import Vocoder
+from vocoder.vocoder import Vocoder
 
 frequencies = np.array([100, 500, 1500, 5000])
 vocoder = Vocoder(
@@ -58,18 +60,13 @@ python -m vocoder --filename clear.wav --nbands 6
 
 Run the CLI on a directory:
 ```bash
-python -m vocoder --input_dir examples --nbands 4 --nprocess 2
+python -m vocoder --input_dir examples --nbands 4
 ```
 
 For large directory runs, the CLI now:
-- runs each file in its own subprocess for better isolation
-- can fail one stuck file after `--file_timeout_seconds` without wedging the
-  whole batch
-- retries one timed-out file once after removing its expected output file
+- runs batch jobs sequentially
 - can optionally write per-file records to a JSONL metadata file with
   `--metadata_filename batch.jsonl`
-- writes active worker status JSON files under
-  `--status_dirname` inside `--output_dir`
 
 ## Dependencies
 The code currently depends on these Python packages:

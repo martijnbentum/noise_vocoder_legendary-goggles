@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'vocoder'
-version = '0.1.50'
+version = '0.1.51'
 description = 'Noise vocoder utilities for loading, vocoding, plotting, and writing speech audio.'
 readme = 'README.md'
 requires-python = '>=3.10'
@@ -26,7 +26,7 @@ audio = [
 ]
 
 [project.scripts]
-vocoder = 'vocoder.core:main'
+vocoder = 'vocoder.batch:main'
 
 [tool.setuptools.packages.find]
 include = ['vocoder']

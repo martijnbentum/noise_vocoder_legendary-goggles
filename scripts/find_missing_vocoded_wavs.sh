@@ -24,7 +24,7 @@ python - "$input_dir" "$output_dir" "$JOB_NBANDS" "$missing_file" <<'PY'
 import sys
 from pathlib import Path
 
-from vocoder import core
+from vocoder import file_io
 
 
 input_dir = Path(sys.argv[1])
@@ -36,11 +36,11 @@ input_files = sorted(input_dir.rglob('*.wav'))
 if not input_files:
     raise ValueError(f'No wav files found in input_dir: {input_dir}')
 
-shard_map = core.build_output_shard_map(input_files, input_dir)
+shard_map = file_io.build_output_shard_map(input_files, input_dir)
 missing = []
 for input_file in input_files:
     output_filename = Path(
-        core.get_output_filename(
+        file_io.get_output_filename(
             str(input_file),
             output_dir=str(output_dir),
             input_dir=str(input_dir),

@@ -129,11 +129,9 @@ export NPROCESS="$nprocess"
 python - <<'PY'
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
-from vocoder import core
-
-FILE_TIMEOUT_SECONDS = 900
+from vocoder import batch
+from vocoder import file_io
 
 
 def load_missing_files(missing_list):
@@ -158,7 +156,7 @@ def main():
     if not input_files:
         raise ValueError(f'No wav files found in input_dir: {input_dir}')
 
-    shard_map = core.build_output_shard_map(input_files, input_dir)
+    shard_map = file_io.build_output_shard_map(input_files, input_dir)
     requested = set(load_missing_files(missing_list))
     missing_files = [
         str(input_file)
@@ -169,31 +167,28 @@ def main():
         print('No matching missing files remained to process.', flush=True)
         return
 
-    tasks = core.iter_batch_tasks(missing_files, shard_map)
-    args = SimpleNamespace(
-        nprocess=nprocess,
-        sample_rate=16000,
-        butterworth_order=4,
-        match_rms=False,
-        output_dir=str(output_dir),
-        input_dir=str(input_dir),
-        nbands=n_bands,
-        frequency_family=family,
-        frequency_key=key,
-        frequencies=None,
-        metadata_filename='',
-        failure_filename=f'repair_failures_{os.environ["JOB_NAME"]}.jsonl',
-        status_dirname='_worker_status',
-        file_timeout_seconds=FILE_TIMEOUT_SECONDS,
+    args = type('Args', (), {})()
+    args.sample_rate = 16000
+    args.butterworth_order = 4
+    args.match_rms = False
+    args.output_dir = str(output_dir)
+    args.input_dir = str(input_dir)
+    args.nbands = n_bands
+    args.frequency_family = family
+    args.frequency_key = key
+    args.frequencies = None
+    args.metadata_filename = ''
+    args.failure_filename = (
+        f'repair_failures_{os.environ["JOB_NAME"]}.jsonl'
     )
 
     print(
         'repair batch launch:',
-        f'workers={nprocess}',
-        f'file_timeout_seconds={FILE_TIMEOUT_SECONDS}',
+        f'requested_cpus={nprocess}',
+        'mode=sequential',
         flush=True,
     )
-    core.run_parallel_batch(args, tasks, len(missing_files))
+    batch.run_batch(args, missing_files, shard_map)
 
 
 main()

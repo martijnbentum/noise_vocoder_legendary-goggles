@@ -72,7 +72,7 @@ echo "host: $(hostname)"
 echo "job_id: ${SLURM_JOB_ID:-none}"
 echo "job_name: ${SLURM_JOB_NAME:-none}"
 echo "cpus_per_task: ${SLURM_CPUS_PER_TASK:-unset}"
-echo "nprocess: $nprocess"
+echo "requested_cpus: $nprocess"
 echo "frequency_family: $family"
 echo "frequency_key: $key"
 echo "n_bands: $n_bands"
@@ -86,7 +86,6 @@ echo "==========================="
 srun python -u -m vocoder \
     --input_dir "$input_dir" \
     --output_dir "$output_dir" \
-    --nprocess "$nprocess" \
     --nbands "$n_bands" \
     --frequency_family "$family" \
     --frequency_key "$key" &
