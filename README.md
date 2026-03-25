@@ -89,6 +89,10 @@ Standard frequency bands now live in
 [`vocoder/frequency_bands.json`](/Users/martijn.bentum/vocoder/repo/vocoder/frequency_bands.json).
 The CLI uses the `default_family` bands by default and also supports
 `--frequency_family` and `--frequency_key`.
+The `default_family` presets are approximately logarithmic and follow the
+classic noise-vocoding setup described on Matt Davis's vocoder page and in
+Shannon et al., "Speech Recognition with Primarily Temporal Cues"
+(*Science*, 1995).
 
 The default config file is bundled inside the installed `vocoder` package, so
 `get_standard_bands()` works after `pip install`. If you saw a
