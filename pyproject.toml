@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'vocoder'
-version = '0.1.48'
+version = '0.1.49'
 description = 'Noise vocoder utilities for loading, vocoding, plotting, and writing speech audio.'
 readme = 'README.md'
 requires-python = '>=3.10'
@@ -30,3 +30,6 @@ vocoder = 'vocoder.core:main'
 
 [tool.setuptools.packages.find]
 include = ['vocoder']
+
+[tool.setuptools.package-data]
+vocoder = ['frequency_bands.json']

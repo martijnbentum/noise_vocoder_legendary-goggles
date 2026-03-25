@@ -86,9 +86,14 @@ that bumps the patch version in `pyproject.toml` on every commit.
 
 ## Frequency Config
 Standard frequency bands now live in
-[`config/frequency_bands.json`](/Users/martijn.bentum/vocoder/repo/config/frequency_bands.json).
+[`vocoder/frequency_bands.json`](/Users/martijn.bentum/vocoder/repo/vocoder/frequency_bands.json).
 The CLI uses the `default_family` bands by default and also supports
 `--frequency_family` and `--frequency_key`.
+
+The default config file is bundled inside the installed `vocoder` package, so
+`get_standard_bands()` works after `pip install`. If you saw a
+`FileNotFoundError` pointing at `site-packages/config/frequency_bands.json`,
+that came from an older release that still looked for a repo-level config dir.
 
 ## Snellius Scripts
 Snellius helper scripts live in [`scripts/`](/Users/martijn.bentum/vocoder/repo/scripts):

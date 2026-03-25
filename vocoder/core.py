@@ -94,8 +94,9 @@ noise-vocoded speech
 https://pmc.ncbi.nlm.nih.gov/articles/PMC2730710/pdf/JASMAN-000126-000792_1.pdf
 '''
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-FREQUENCY_CONFIG_FILENAME = REPO_ROOT / 'config' / 'frequency_bands.json'
+FREQUENCY_CONFIG_FILENAME = Path(__file__).resolve().with_name(
+    'frequency_bands.json'
+)
 DEFAULT_MAX_OUTPUT_FILES_PER_DIR = 10000
 
 

@@ -46,6 +46,13 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(vocoder.filename, 'examples/1.wav')
         self.assertEqual(vocoder.path, core.Path('examples/1.wav'))
 
+    def test_default_frequency_config_is_packaged_with_module(self):
+        self.assertTrue(core.FREQUENCY_CONFIG_FILENAME.exists())
+        self.assertEqual(
+            core.FREQUENCY_CONFIG_FILENAME.parent,
+            core.Path(core.__file__).resolve().parent,
+        )
+
     def test_handle_nbands_uses_default_family_config(self):
         args = SimpleNamespace(
             nbands=6,
