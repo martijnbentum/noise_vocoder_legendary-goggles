@@ -1,4 +1,11 @@
 #!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=64
+#SBATCH --time=24:00:00
+#SBATCH --output=slurm_out/%x-%j.out
+#SBATCH --error=slurm_out/%x-%j.err
+
 # Find zero-byte wav files under a directory and record them in archive.
 
 set -eu
@@ -27,7 +34,6 @@ if [ "$#" -ne 1 ]; then
 fi
 
 target_dir="$1"
-nprocess="$cpus"
 
 if [ ! -d "$target_dir" ]; then
     echo "Directory does not exist: $target_dir" >&2
@@ -42,6 +48,7 @@ target_dir=$(cd "$target_dir" && pwd)
 dir_name=$(basename "$target_dir")
 output_file="$archive_dir/empty_files_${dir_name}.txt"
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/find_empty_wavs.XXXXXX")
+nprocess="$cpus"
 
 mkdir -p "$archive_dir"
 
@@ -50,6 +57,17 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+echo '=== Empty wav scan job ==='
+echo "host: $(hostname)"
+echo "job_id: ${SLURM_JOB_ID:-none}"
+echo "job_name: ${SLURM_JOB_NAME:-none}"
+echo "target_dir: $target_dir"
+echo "cpus_requested: $cpus"
+echo "cpus_per_task: ${SLURM_CPUS_PER_TASK:-unset}"
+echo "nprocess: $nprocess"
+echo "output_file: $output_file"
+echo '=========================='
 
 find "$target_dir" -type f -name '*.wav' -print0 \
     | xargs -0 -n 256 -P "$nprocess" bash -c '
