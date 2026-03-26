@@ -85,6 +85,17 @@ def white_noise(n_samples = None, duration = None, sample_rate = 16000):
     white_noise = np.random.normal(0, 1, n_samples)
     return white_noise
 
+
+def sine_wave(
+    frequency,
+    n_samples,
+    sample_rate = 16000,
+    phase = 0.0,
+):
+    '''Generate a sine wave with one fixed carrier frequency.'''
+    time = np.arange(n_samples) / sample_rate
+    return np.sin(2 * np.pi * frequency * time + phase)
+
 def moving_rms(signal, window_size = 1000):
     """Centered moving RMS."""
     pad = window_size // 2

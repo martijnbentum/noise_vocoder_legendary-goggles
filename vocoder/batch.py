@@ -133,6 +133,7 @@ def build_parallel_config(args):
         'files_per_chunk': int(args.files_per_chunk),
         'sample_rate': int(args.sample_rate),
         'match_rms': bool(args.match_rms),
+        'carrier_type': getattr(args, 'carrier_type', 'noise'),
         'frequencies': [int(value) for value in frequencies],
         'output_dir': str(args.output_dir),
         'input_dir': str(args.input_dir),
@@ -235,6 +236,7 @@ def make_chunk_args(config, filename, output_shard_dir):
         sample_rate=config['sample_rate'],
         butterworth_order=4,
         match_rms=config['match_rms'],
+        carrier_type=config.get('carrier_type', 'noise'),
         frequencies=config['frequencies'],
         output_dir=config['output_dir'],
         input_dir=config['input_dir'],
@@ -532,6 +534,7 @@ def handle_filename(args):
         sample_rate=args.sample_rate,
         butterworth_order=args.butterworth_order,
         match_rms=args.match_rms,
+        carrier_type=getattr(args, 'carrier_type', 'noise'),
         frequencies=frequencies,
         output_dir=args.output_dir,
         input_dir=getattr(args, 'input_dir', ''),
@@ -573,6 +576,13 @@ def build_parser():
         '--match_rms',
         action='store_true',
         help='match the rms of the vocoded signal to the original signal',
+    )
+    parser.add_argument(
+        '--carrier_type',
+        type=str,
+        default='noise',
+        choices=['noise', 'sine'],
+        help='carrier used for vocoding',
     )
     parser.add_argument(
         '--nbands',

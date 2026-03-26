@@ -14,6 +14,7 @@ DEFAULT_CPUS_PER_TASK = 16
 DEFAULT_FILES_PER_CHUNK = 500
 DEFAULT_MAX_PARALLEL_TASKS = 4
 CONFIG_KEYS = {
+    'carrier_type',
     'files_per_chunk',
     'frequencies',
     'input_dir',
@@ -78,6 +79,7 @@ def normalize_batch_config(config, config_path = ''):
         ),
         'sample_rate': int(config.get('sample_rate', 16000)),
         'match_rms': bool(config.get('match_rms', False)),
+        'carrier_type': config.get('carrier_type', 'noise'),
         'overwrite': bool(config.get('overwrite', False)),
         'frequency_family': config.get('frequency_family', 'default_family'),
         'nbands': int(config.get('nbands', 6)),
@@ -86,6 +88,8 @@ def normalize_batch_config(config, config_path = ''):
         raise ValueError('files_per_chunk must be at least 1')
     if normalized['max_parallel_tasks'] < 1:
         raise ValueError('max_parallel_tasks must be at least 1')
+    if normalized['carrier_type'] not in ('noise', 'sine'):
+        raise ValueError("carrier_type must be 'noise' or 'sine'")
     frequencies = config.get('frequencies')
     if frequencies is None:
         frequencies = get_standard_bands(

@@ -97,7 +97,8 @@ FREQUENCY_CONFIG_FILENAME = Path(__file__).resolve().with_name(
 class Vocoder:
     def __init__(self, signal = None, sample_rate = 16000, frequencies = None,
         filename = None, butterworth_order = 4, match_rms = True,
-        output_dir = '', input_dir = '', output_shard_dir = '',):
+        output_dir = '', input_dir = '', output_shard_dir = '',
+        carrier_type = 'noise',):
         if filename is None and isinstance(signal, (str, os.PathLike)):
             filename = signal
             signal = None
@@ -108,6 +109,11 @@ class Vocoder:
         self.filename = filename
         self.butterworth_order = butterworth_order
         self.match_rms = match_rms
+        if carrier_type not in ('noise', 'sine'):
+            raise ValueError(
+                "carrier_type must be 'noise' or 'sine'"
+            )
+        self.carrier_type = carrier_type
         self.output_dir = output_dir
         self.input_dir = input_dir
         self.output_shard_dir = output_shard_dir
@@ -395,14 +401,28 @@ class Frequency_band:
     @property
     def signal(self):
         return self.parent.signal
+
+    @property
+    def center_frequency(self):
+        return np.sqrt(self.low_frequency * self.high_frequency)
             
     @property
     def vocoded_signal(self):
         '''return the vocoded signal'''
         if hasattr(self, '_vocoded_signal'): return self._vocoded_signal
-        carrier = sp.butterworth_bandpass_filter(
-            self.white_noise,
-            self.low_frequency, self.high_frequency, self.parent.sample_rate)
+        if self.parent.carrier_type == 'noise':
+            carrier = sp.butterworth_bandpass_filter(
+                self.white_noise,
+                self.low_frequency,
+                self.high_frequency,
+                self.parent.sample_rate,
+            )
+        else:
+            carrier = sp.sine_wave(
+                self.center_frequency,
+                len(self.signal),
+                sample_rate=self.parent.sample_rate,
+            )
         x = self.envelope * carrier
         if self.parent.match_rms:
             x = sp.match_rms_by_window(self.filtered_signal, x)

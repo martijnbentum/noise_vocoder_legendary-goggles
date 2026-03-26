@@ -114,6 +114,17 @@ class HandleArgsTests(unittest.TestCase):
             vocoder.frequencies,
             np.array([50, 229, 558, 1161, 2265, 4290, 7999]),
         )
+        self.assertEqual(vocoder.carrier_type, 'noise')
+
+    def test_batch_parser_accepts_sine_carrier_type(self):
+        parser = batch.build_parser()
+        args = parser.parse_args([
+            '--filename',
+            'demo.wav',
+            '--carrier_type',
+            'sine',
+        ])
+        self.assertEqual(args.carrier_type, 'sine')
 
     def test_prepare_output_dir_creates_missing_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -365,6 +376,7 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(config['files_per_chunk'], 500)
         self.assertEqual(config['max_parallel_tasks'], 4)
         self.assertFalse(config['match_rms'])
+        self.assertEqual(config['carrier_type'], 'noise')
         self.assertEqual(
             config['frequencies'],
             [50, 229, 558, 1161, 2265, 4290, 7999],
@@ -381,6 +393,16 @@ class HandleArgsTests(unittest.TestCase):
         )
         self.assertEqual(config['frequencies'], [10, 20, 40])
         self.assertEqual(config['n_bands'], 2)
+
+    def test_normalize_batch_config_preserves_sine_carrier_type(self):
+        config = slurm_batch.normalize_batch_config(
+            {
+                'input_dir': '/tmp/input',
+                'output_dir': '/tmp/job/wav',
+                'carrier_type': 'sine',
+            }
+        )
+        self.assertEqual(config['carrier_type'], 'sine')
 
     def test_get_run_dir_uses_output_parent(self):
         run_dir = slurm_batch.get_run_dir('/tmp/job/wav')
@@ -578,6 +600,7 @@ class FrequencyBandTests(unittest.TestCase):
             sample_rate=16000,
             butterworth_order=4,
             match_rms=False,
+            carrier_type='noise',
         )
         with mock.patch(
             'vocoder.vocoder.sp.butterworth_bandpass_filter',
@@ -599,6 +622,58 @@ class FrequencyBandTests(unittest.TestCase):
         np.testing.assert_allclose(band.filtered_signal, [0.5, 0.5, 0.5])
         np.testing.assert_allclose(band.envelope, [2.0, 3.0, 4.0])
         self.assertEqual(bandpass.call_count, 2)
+
+    def test_center_frequency_uses_geometric_mean(self):
+        parent = SimpleNamespace(
+            signal=np.array([0.1, 0.2, 0.3]),
+            white_noise=np.array([1.0, 2.0, 3.0]),
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            carrier_type='noise',
+        )
+        with mock.patch(
+            'vocoder.vocoder.sp.butterworth_bandpass_filter',
+            return_value=np.array([0.5, 0.5, 0.5]),
+        ):
+            with mock.patch(
+                'vocoder.vocoder.sp.extract_envelope',
+                return_value=np.array([2.0, 3.0, 4.0]),
+            ):
+                band = vocoder_module.Frequency_band(100, 400, parent)
+        self.assertEqual(band.center_frequency, 200.0)
+
+    def test_vocoded_signal_uses_sine_carrier_when_requested(self):
+        parent = SimpleNamespace(
+            signal=np.array([0.1, 0.2, 0.3]),
+            white_noise=np.array([1.0, 2.0, 3.0]),
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            carrier_type='sine',
+        )
+        with mock.patch(
+            'vocoder.vocoder.sp.butterworth_bandpass_filter',
+            return_value=np.array([0.5, 0.5, 0.5]),
+        ):
+            with mock.patch(
+                'vocoder.vocoder.sp.extract_envelope',
+                return_value=np.array([2.0, 3.0, 4.0]),
+            ):
+                with mock.patch(
+                    'vocoder.vocoder.sp.sine_wave',
+                    return_value=np.array([10.0, 20.0, 30.0]),
+                ) as sine_wave:
+                    band = vocoder_module.Frequency_band(100, 400, parent)
+                    np.testing.assert_allclose(
+                        band.vocoded_signal,
+                        [20.0, 60.0, 120.0],
+                    )
+        sine_wave.assert_called_once_with(
+            200.0,
+            3,
+            sample_rate=16000,
+        )
 
 
 class PlotTests(unittest.TestCase):
