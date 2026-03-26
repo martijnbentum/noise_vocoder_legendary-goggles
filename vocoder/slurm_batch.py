@@ -88,8 +88,10 @@ def normalize_batch_config(config, config_path = ''):
         raise ValueError('files_per_chunk must be at least 1')
     if normalized['max_parallel_tasks'] < 1:
         raise ValueError('max_parallel_tasks must be at least 1')
-    if normalized['carrier_type'] not in ('noise', 'sine'):
-        raise ValueError("carrier_type must be 'noise' or 'sine'")
+    if normalized['carrier_type'] not in ('noise', 'sine', 'sine_complex'):
+        raise ValueError(
+            "carrier_type must be 'noise', 'sine' or 'sine_complex'"
+        )
     frequencies = config.get('frequencies')
     if frequencies is None:
         frequencies = get_standard_bands(

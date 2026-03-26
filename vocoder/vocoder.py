@@ -109,9 +109,9 @@ class Vocoder:
         self.filename = filename
         self.butterworth_order = butterworth_order
         self.match_rms = match_rms
-        if carrier_type not in ('noise', 'sine'):
+        if carrier_type not in ('noise', 'sine', 'sine_complex'):
             raise ValueError(
-                "carrier_type must be 'noise' or 'sine'"
+                "carrier_type must be 'noise', 'sine' or 'sine_complex'"
             )
         self.carrier_type = carrier_type
         self.output_dir = output_dir
@@ -411,6 +411,32 @@ class Frequency_band:
         seed = int(self.low_frequency * 1000 + self.high_frequency)
         rng = np.random.default_rng(seed)
         return float(rng.uniform(0.0, 2 * np.pi))
+
+    def tone_phase(self, index):
+        seed = int(
+            self.low_frequency * 1000 + self.high_frequency + index * 1000000
+        )
+        rng = np.random.default_rng(seed)
+        return float(rng.uniform(0.0, 2 * np.pi))
+
+    @property
+    def carrier_frequencies(self):
+        return sp.log_spaced_band_frequencies(
+            self.low_frequency,
+            self.high_frequency,
+            n_frequencies=3,
+        )
+
+    def make_sine_complex_carrier(self):
+        carrier = np.zeros(len(self.signal))
+        for index, frequency in enumerate(self.carrier_frequencies):
+            carrier += sp.sine_wave(
+                frequency,
+                len(self.signal),
+                sample_rate=self.parent.sample_rate,
+                phase=self.tone_phase(index),
+            )
+        return sp.normalize_rms(carrier)
             
     @property
     def vocoded_signal(self):
@@ -423,13 +449,15 @@ class Frequency_band:
                 self.high_frequency,
                 self.parent.sample_rate,
             )
-        else:
+        elif self.parent.carrier_type == 'sine':
             carrier = sp.sine_wave(
                 self.center_frequency,
                 len(self.signal),
                 sample_rate=self.parent.sample_rate,
                 phase=self.carrier_phase,
             )
+        else:
+            carrier = self.make_sine_complex_carrier()
         x = self.envelope * carrier
         if self.parent.match_rms:
             x = sp.match_rms_by_window(self.filtered_signal, x)

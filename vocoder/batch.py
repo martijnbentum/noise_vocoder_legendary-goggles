@@ -581,7 +581,7 @@ def build_parser():
         '--carrier_type',
         type=str,
         default='noise',
-        choices=['noise', 'sine'],
+        choices=['noise', 'sine', 'sine_complex'],
         help='carrier used for vocoding',
     )
     parser.add_argument(

@@ -126,6 +126,16 @@ class HandleArgsTests(unittest.TestCase):
         ])
         self.assertEqual(args.carrier_type, 'sine')
 
+    def test_batch_parser_accepts_sine_complex_carrier_type(self):
+        parser = batch.build_parser()
+        args = parser.parse_args([
+            '--filename',
+            'demo.wav',
+            '--carrier_type',
+            'sine_complex',
+        ])
+        self.assertEqual(args.carrier_type, 'sine_complex')
+
     def test_prepare_output_dir_creates_missing_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = vocoder_module.Path(temp_dir) / 'nested' / 'wav'
@@ -404,6 +414,16 @@ class HandleArgsTests(unittest.TestCase):
         )
         self.assertEqual(config['carrier_type'], 'sine')
 
+    def test_normalize_batch_config_preserves_sine_complex_carrier_type(self):
+        config = slurm_batch.normalize_batch_config(
+            {
+                'input_dir': '/tmp/input',
+                'output_dir': '/tmp/job/wav',
+                'carrier_type': 'sine_complex',
+            }
+        )
+        self.assertEqual(config['carrier_type'], 'sine_complex')
+
     def test_get_run_dir_uses_output_parent(self):
         run_dir = slurm_batch.get_run_dir('/tmp/job/wav')
         self.assertEqual(run_dir, vocoder_module.Path('/tmp/job/_vocode_run'))
@@ -666,6 +686,71 @@ class FrequencyBandTests(unittest.TestCase):
         self.assertEqual(band.carrier_phase, other_band.carrier_phase)
         self.assertNotEqual(band.carrier_phase, shifted_band.carrier_phase)
 
+    def test_log_spaced_band_frequencies_stay_inside_band(self):
+        frequencies = vocoder_module.sp.log_spaced_band_frequencies(
+            50,
+            229,
+            n_frequencies=3,
+        )
+        self.assertEqual(len(frequencies), 3)
+        self.assertTrue(50 < frequencies[0] < frequencies[1] < frequencies[2] < 229)
+        np.testing.assert_allclose(
+            np.round(frequencies),
+            [68, 107, 169],
+            atol=1,
+        )
+
+    def test_sine_complex_carrier_has_three_frequencies(self):
+        parent = SimpleNamespace(
+            signal=np.array([0.1, 0.2, 0.3]),
+            white_noise=np.array([1.0, 2.0, 3.0]),
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            carrier_type='sine_complex',
+        )
+        with mock.patch(
+            'vocoder.vocoder.sp.butterworth_bandpass_filter',
+            return_value=np.array([0.5, 0.5, 0.5]),
+        ):
+            with mock.patch(
+                'vocoder.vocoder.sp.extract_envelope',
+                return_value=np.array([2.0, 3.0, 4.0]),
+            ):
+                band = vocoder_module.Frequency_band(50, 229, parent)
+        self.assertEqual(len(band.carrier_frequencies), 3)
+        np.testing.assert_allclose(
+            np.round(band.carrier_frequencies),
+            [68, 107, 169],
+            atol=1,
+        )
+
+    def test_tone_phase_varies_by_tone_index(self):
+        parent = SimpleNamespace(
+            signal=np.array([0.1, 0.2, 0.3]),
+            white_noise=np.array([1.0, 2.0, 3.0]),
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            carrier_type='sine_complex',
+        )
+        with mock.patch(
+            'vocoder.vocoder.sp.butterworth_bandpass_filter',
+            return_value=np.array([0.5, 0.5, 0.5]),
+        ):
+            with mock.patch(
+                'vocoder.vocoder.sp.extract_envelope',
+                return_value=np.array([2.0, 3.0, 4.0]),
+            ):
+                band = vocoder_module.Frequency_band(100, 400, parent)
+        self.assertNotEqual(band.tone_phase(0), band.tone_phase(1))
+
+    def test_normalize_rms_rescales_energy(self):
+        signal = np.array([1.0, -1.0, 1.0, -1.0])
+        normalized = vocoder_module.sp.normalize_rms(signal, target_rms=0.5)
+        rms = np.sqrt(np.mean(normalized ** 2))
+        self.assertAlmostEqual(rms, 0.5)
+
     def test_vocoded_signal_uses_sine_carrier_when_requested(self):
         parent = SimpleNamespace(
             signal=np.array([0.1, 0.2, 0.3]),
@@ -698,6 +783,47 @@ class FrequencyBandTests(unittest.TestCase):
             sample_rate=16000,
             phase=band.carrier_phase,
         )
+
+    def test_vocoded_signal_uses_sine_complex_carrier_when_requested(self):
+        parent = SimpleNamespace(
+            signal=np.array([0.1, 0.2, 0.3]),
+            white_noise=np.array([1.0, 2.0, 3.0]),
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            carrier_type='sine_complex',
+        )
+        with mock.patch(
+            'vocoder.vocoder.sp.butterworth_bandpass_filter',
+            return_value=np.array([0.5, 0.5, 0.5]),
+        ):
+            with mock.patch(
+                'vocoder.vocoder.sp.extract_envelope',
+                return_value=np.array([2.0, 3.0, 4.0]),
+            ):
+                with mock.patch(
+                    'vocoder.vocoder.sp.log_spaced_band_frequencies',
+                    return_value=np.array([10.0, 20.0, 30.0]),
+                ):
+                    with mock.patch(
+                        'vocoder.vocoder.sp.sine_wave',
+                        side_effect=[
+                            np.array([1.0, 2.0, 3.0]),
+                            np.array([4.0, 5.0, 6.0]),
+                            np.array([7.0, 8.0, 9.0]),
+                        ],
+                    ) as sine_wave:
+                        with mock.patch(
+                            'vocoder.vocoder.sp.normalize_rms',
+                            return_value=np.array([10.0, 20.0, 30.0]),
+                        ) as normalize_rms:
+                            band = vocoder_module.Frequency_band(100, 400, parent)
+                            np.testing.assert_allclose(
+                                band.vocoded_signal,
+                                [20.0, 60.0, 120.0],
+                            )
+        self.assertEqual(sine_wave.call_count, 3)
+        normalize_rms.assert_called_once()
 
 
 class PlotTests(unittest.TestCase):

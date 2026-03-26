@@ -96,6 +96,33 @@ def sine_wave(
     time = np.arange(n_samples) / sample_rate
     return np.sin(2 * np.pi * frequency * time + phase)
 
+
+def log_spaced_band_frequencies(
+    low_frequency,
+    high_frequency,
+    n_frequencies = 3,
+    edge_fraction = 0.2,
+):
+    '''Return interior log-spaced carrier frequencies for one band.'''
+    if n_frequencies < 1:
+        raise ValueError('n_frequencies must be at least 1')
+    if low_frequency <= 0 or high_frequency <= low_frequency:
+        raise ValueError('Band frequencies must be positive and increasing')
+    log_low = np.log(low_frequency)
+    log_high = np.log(high_frequency)
+    log_span = log_high - log_low
+    inner_low = log_low + edge_fraction * log_span
+    inner_high = log_high - edge_fraction * log_span
+    return np.exp(np.linspace(inner_low, inner_high, n_frequencies))
+
+
+def normalize_rms(signal, target_rms = 1.0):
+    '''Rescale one signal to the requested RMS level.'''
+    rms = np.sqrt(np.mean(signal ** 2))
+    if rms == 0:
+        return signal
+    return signal * (target_rms / rms)
+
 def moving_rms(signal, window_size = 1000):
     """Centered moving RMS."""
     pad = window_size // 2
