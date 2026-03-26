@@ -12,6 +12,7 @@ from vocoder import audio
 from vocoder import batch
 from vocoder import file_io
 from vocoder import plot
+from vocoder import slurm_batch
 from vocoder import vocoder as vocoder_module
 
 
@@ -351,6 +352,73 @@ class HandleArgsTests(unittest.TestCase):
         with mock.patch('builtins.__import__', side_effect=guarded_import):
             reloaded_module = importlib.reload(vocoder_module)
         self.assertFalse(hasattr(reloaded_module, 'plot'))
+
+    def test_normalize_batch_config_uses_default_band_config(self):
+        config = slurm_batch.normalize_batch_config(
+            {
+                'input_dir': '/tmp/input',
+                'output_dir': '/tmp/job/wav',
+            }
+        )
+        self.assertEqual(config['files_per_chunk'], 500)
+        self.assertEqual(config['max_parallel_chunks'], 64)
+        self.assertFalse(config['match_rms'])
+        self.assertEqual(
+            config['frequencies'],
+            [50, 229, 558, 1161, 2265, 4290, 7999],
+        )
+
+    def test_normalize_batch_config_prefers_explicit_frequencies(self):
+        config = slurm_batch.normalize_batch_config(
+            {
+                'input_dir': '/tmp/input',
+                'output_dir': '/tmp/job/wav',
+                'nbands': 4,
+                'frequencies': [10, 20, 40],
+            }
+        )
+        self.assertEqual(config['frequencies'], [10, 20, 40])
+        self.assertEqual(config['n_bands'], 2)
+
+    def test_get_run_dir_uses_output_parent(self):
+        run_dir = slurm_batch.get_run_dir('/tmp/job/wav')
+        self.assertEqual(run_dir, vocoder_module.Path('/tmp/job/_vocode_run'))
+
+    def test_prepare_run_builds_manifest_and_run_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = vocoder_module.Path(temp_dir) / 'input'
+            output_dir = vocoder_module.Path(temp_dir) / 'job' / 'wav'
+            input_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            (input_dir / 'a.wav').write_bytes(b'RIFF')
+            (input_dir / 'b.wav').write_bytes(b'RIFF')
+            config_path = vocoder_module.Path(temp_dir) / 'config.json'
+            config_path.write_text(json.dumps({
+                'input_dir': str(input_dir),
+                'output_dir': str(output_dir),
+                'files_per_chunk': 1,
+            }))
+            prepared = slurm_batch.prepare_run(config_path)
+            run_paths = slurm_batch.get_run_paths(output_dir)
+            manifest_lines = run_paths['manifest'].read_text().splitlines()
+            self.assertTrue(run_paths['run_config'].exists())
+            self.assertTrue(run_paths['audio_info_dir'].exists())
+        self.assertEqual(prepared['total_files'], 2)
+        self.assertEqual(prepared['n_chunks'], 2)
+        self.assertEqual(len(manifest_lines), 2)
+
+    def test_make_audio_info_record_returns_stem_and_sample_count(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = vocoder_module.Path(temp_dir) / 'demo.wav'
+            wav_path.write_bytes(b'RIFF')
+            with mock.patch(
+                'vocoder.slurm_batch.sf.info',
+                return_value=SimpleNamespace(frames=1234),
+            ):
+                record = slurm_batch.make_audio_info_record(wav_path)
+        self.assertEqual(record['input_filename'], str(wav_path))
+        self.assertEqual(record['file_stem'], 'demo')
+        self.assertEqual(record['n_samples'], 1234)
 
 
 class FrequencyBandTests(unittest.TestCase):

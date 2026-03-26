@@ -16,16 +16,18 @@ pip install git+https://git@github.com/martijnbentum/noise_vocoder_legendary-gog
 ├── LICENSE
 ├── pyproject.toml
 ├── README.md
+├── scripts
 ├── tests
 │   └── tester.py
 └── vocoder
     ├── __init__.py
     ├── audio.py
     ├── batch.py
-    ├── core.py
     ├── file_io.py
     ├── plot.py
-    └── signal_processing.py
+    ├── signal_processing.py
+    ├── slurm_batch.py
+    └── vocoder.py
 ```
 
 ## Examples
@@ -97,54 +99,30 @@ The default config file is bundled inside the installed `vocoder` package, so
 that came from an older release that still looked for a repo-level config dir.
 
 ## Snellius Scripts
-Snellius helper scripts live in
-[`archive/scripts/`](/Users/martijn.bentum/vocoder/repo/archive/scripts):
+The active Snellius entrypoints live in
+[`scripts/`](/Users/martijn.bentum/vocoder/repo/scripts):
 - `build_snellius_env.sh` creates the Python environment with the required
   module stack.
-- `snellius_jobs.sh` only defines the named vocoding jobs and their output
-  dirs when sourced by another script; running it directly does not submit or
-  execute all jobs.
-- `submit_vocode_job.sh <job_name>` resolves a named job, checks the target
-  output directory, and submits the generic sbatch runner.
-- `sbatch_vocode_job.sh` is the generic 64-core Slurm entrypoint that loads
-  the named job configuration inside the job.
-- `submit_repair_vocode_job.sh <job_name>` submits a repair run for a named
-  job and reruns only source wavs whose expected outputs are still missing.
-- `find_missing_vocoded_wavs.sh <job_name>` writes the missing source wav
-  paths to `archive/missing_<job_name>_<slurm_job_id>.txt`.
-- Slurm stdout/stderr files are written to
-  [`slurm_out/`](/Users/martijn.bentum/vocoder/repo/slurm_out).
-- Batch progress is written to `archive/progress_<slurm_job_id>.txt` by the
-  shell-side monitor, while active file-level worker status is written by
-  Python under `_worker_status/` in the output directory.
-- If a running job stalls and `seconds_since_last_wav_change` exceeds 360
-  while progress is still below `100%`, the main job submits one repair job
-  automatically and then stops itself.
+- `batch_vocode.sbatch` is the config-driven Slurm entrypoint for chunked
+  array runs.
+
+The array workflow is:
+1. `sbatch [scripts/batch_vocode.sbatch](/Users/martijn.bentum/vocoder/repo/scripts/batch_vocode.sbatch) config.json`
+2. The bootstrap job prepares `_vocode_run/` next to the output `wav/`
+   directory and writes `manifest.txt` plus `run_config.json`.
+3. The bootstrap job submits the real chunk array and a finalizer job.
+4. Each chunk processes one manifest slice, skips valid existing outputs,
+   writes per-chunk progress/failure/input-audio logs, and prints local ETA
+   lines.
+5. The finalizer merges those logs and writes `summary.json`.
 
 Example submissions:
 ```bash
-# Show all available named jobs.
-./archive/scripts/submit_vocode_job.sh --list
-
-# Submit a named job through the generic submit path.
-./archive/scripts/submit_vocode_job.sh default_4_band
-./archive/scripts/submit_vocode_job.sh default_6_band
-./archive/scripts/submit_vocode_job.sh default_8_band
-./archive/scripts/submit_vocode_job.sh default_16_band
-./archive/scripts/submit_vocode_job.sh speech_weighted_8_band
+sbatch scripts/batch_vocode.sbatch config/speech_weighted_8_bands.json
+sbatch scripts/batch_vocode.sbatch config/legacy_4_bands.json
 ```
 
-Example repair commands:
-```bash
-# Submit a repair job for one named batch.
-./archive/scripts/submit_repair_vocode_job.sh default_4_band
-
-# Build the missing-file list explicitly for inspection.
-./archive/scripts/find_missing_vocoded_wavs.sh default_4_band
-
-# Run the repair flow directly inside an allocation.
-./archive/scripts/run_repair_vocode.sh default_4_band
-```
-
-The Snellius runner uses unbuffered Python output for startup, failures, and a
-final batch summary.
+The Snellius runner uses unbuffered Python output for startup, chunk
+progress, failures, and a final run summary. The launcher job writes its
+stdout/stderr to `slurm_out/launcher/`, while chunk and finalizer jobs write
+to `slurm_out/`.

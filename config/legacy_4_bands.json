@@ -1,0 +1,10 @@
+{
+  "input_dir": "/projects/0/prjs1489/data/spidr/wav",
+  "output_dir": "/scratch-shared/mbentum1/vocoded_legacy_4_bands/wav",
+  "files_per_chunk": 500,
+  "max_parallel_chunks": 64,
+  "sample_rate": 16000,
+  "match_rms": false,
+  "frequencies": [100, 392, 1005, 2294, 7999],
+  "overwrite": false
+}
