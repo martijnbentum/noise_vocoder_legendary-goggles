@@ -1,0 +1,12 @@
+{
+  "input_dir": "/projects/0/prjs1489/data/spidr/wav",
+  "output_dir": "/scratch-shared/mbentum1/vocoded_default_8_bands_sine/wav",
+  "files_per_chunk": 500,
+  "max_parallel_tasks": 4,
+  "sample_rate": 16000,
+  "match_rms": false,
+  "carrier_type": "sine",
+  "nbands": 8,
+  "frequency_family": "default_family",
+  "overwrite": false
+}
