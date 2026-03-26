@@ -14,8 +14,12 @@ if [ "$#" -ne 1 ]; then
 fi
 
 config_path="$1"
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(cd "$script_dir/.." && pwd)
+submit_dir="${SLURM_SUBMIT_DIR:-$(pwd)}"
+repo_root=$(cd "$submit_dir" && pwd)
+script_dir="$repo_root/scripts"
+if [ "${config_path#/}" = "$config_path" ]; then
+    config_path="$repo_root/$config_path"
+fi
 env_dir="$repo_root/.venv-snellius"
 mode="${VOCODER_BATCH_MODE:-bootstrap}"
 
@@ -68,7 +72,7 @@ array_job_id=$(sbatch \
     --output="$repo_root/slurm_out/%x-%A_%a.out" \
     --error="$repo_root/slurm_out/%x-%A_%a.err" \
     --export=ALL,VOCODER_BATCH_MODE=chunk \
-    "$0" \
+    "$script_dir/batch_vocode.sbatch" \
     "$config_path")
 
 finalize_job_id=$(sbatch \
@@ -78,7 +82,7 @@ finalize_job_id=$(sbatch \
     --output="$repo_root/slurm_out/%x-%j.out" \
     --error="$repo_root/slurm_out/%x-%j.err" \
     --export=ALL,VOCODER_BATCH_MODE=finalize \
-    "$0" \
+    "$script_dir/batch_vocode.sbatch" \
     "$config_path")
 
 echo "submitted array job: $array_job_id"
