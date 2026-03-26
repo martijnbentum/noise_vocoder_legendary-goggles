@@ -1,8 +1,10 @@
 import importlib
+import io
 import json
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -361,7 +363,8 @@ class HandleArgsTests(unittest.TestCase):
             }
         )
         self.assertEqual(config['files_per_chunk'], 500)
-        self.assertEqual(config['max_parallel_chunks'], 64)
+        self.assertEqual(config['cpus_per_task'], 16)
+        self.assertEqual(config['max_parallel_tasks'], 4)
         self.assertFalse(config['match_rms'])
         self.assertEqual(
             config['frequencies'],
@@ -405,20 +408,95 @@ class HandleArgsTests(unittest.TestCase):
             self.assertTrue(run_paths['audio_info_dir'].exists())
         self.assertEqual(prepared['total_files'], 2)
         self.assertEqual(prepared['n_chunks'], 2)
+        self.assertEqual(prepared['n_task_groups'], 1)
+        self.assertEqual(prepared['chunks_per_task'], 16)
         self.assertEqual(len(manifest_lines), 2)
+
+    def test_get_chunk_ids_for_group_groups_chunks_by_worker_count(self):
+        chunk_ids = batch.get_chunk_ids_for_group(2, 16, 43)
+        self.assertEqual(chunk_ids, list(range(32, 43)))
 
     def test_make_audio_info_record_returns_stem_and_sample_count(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = vocoder_module.Path(temp_dir) / 'demo.wav'
+            input_path = vocoder_module.Path(temp_dir) / 'input.wav'
+            wav_path = vocoder_module.Path(temp_dir) / 'demo_voc6.wav'
+            input_path.write_bytes(b'RIFF')
             wav_path.write_bytes(b'RIFF')
             with mock.patch(
-                'vocoder.slurm_batch.sf.info',
+                'vocoder.batch.sf.info',
                 return_value=SimpleNamespace(frames=1234),
             ):
-                record = slurm_batch.make_audio_info_record(wav_path)
-        self.assertEqual(record['input_filename'], str(wav_path))
-        self.assertEqual(record['file_stem'], 'demo')
+                record = batch.make_audio_info_record(
+                    wav_path,
+                    input_filename=input_path,
+                )
+        self.assertEqual(record['input_filename'], str(input_path))
+        self.assertEqual(record['output_filename'], str(wav_path))
+        self.assertEqual(record['file_stem'], 'demo_voc6')
         self.assertEqual(record['n_samples'], 1234)
+
+    def test_slurm_dry_run_prints_grouped_chunk_layout(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = vocoder_module.Path(temp_dir) / 'input'
+            output_dir = vocoder_module.Path(temp_dir) / 'job' / 'wav'
+            input_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            for index in range(5):
+                (input_dir / f'{index}.wav').write_bytes(b'RIFF')
+            config_path = vocoder_module.Path(temp_dir) / 'config.json'
+            config_path.write_text(json.dumps({
+                'input_dir': str(input_dir),
+                'output_dir': str(output_dir),
+                'files_per_chunk': 2,
+                'cpus_per_task': 2,
+                'max_parallel_tasks': 3,
+            }))
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                slurm_batch.dry_run(config_path)
+        output = buffer.getvalue()
+        self.assertIn('total_files: 5', output)
+        self.assertIn('n_chunks: 3', output)
+        self.assertIn('n_task_groups: 2', output)
+        self.assertIn('group=0 chunks=0-1 n_chunks=2 files=4', output)
+        self.assertIn('group=1 chunks=2-2 n_chunks=1 files=1', output)
+
+    def test_process_manifest_chunk_writes_failure_log(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = vocoder_module.Path(temp_dir) / '_vocode_run'
+            manifest_path = run_dir / 'manifest.txt'
+            input_dir = vocoder_module.Path(temp_dir) / 'input'
+            output_dir = vocoder_module.Path(temp_dir) / 'wav'
+            input_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            batch.ensure_run_directories({'run_dir': str(run_dir)})
+            input_filename = input_dir / 'broken.wav'
+            input_filename.write_bytes(b'RIFF')
+            manifest_path.write_text(f'{input_filename}\n')
+            config = {
+                'run_dir': str(run_dir),
+                'manifest_path': str(manifest_path),
+                'files_per_chunk': 1,
+                'total_files': 1,
+                'sample_rate': 16000,
+                'match_rms': False,
+                'frequencies': [50, 229, 558, 1161, 2265, 4290, 7999],
+                'output_dir': str(output_dir),
+                'input_dir': str(input_dir),
+                'n_bands': 6,
+            }
+            with mock.patch(
+                'vocoder.batch.handle_filename',
+                side_effect=RuntimeError('boom'),
+            ):
+                stats = batch.process_manifest_chunk(config, 0)
+            failure_path = batch.get_chunk_failure_path(run_dir, 0)
+            lines = failure_path.read_text().splitlines()
+        self.assertEqual(stats['failed'], 1)
+        self.assertEqual(len(lines), 1)
+        failure = json.loads(lines[0])
+        self.assertEqual(failure['input_filename'], str(input_filename))
+        self.assertEqual(failure['error_type'], 'RuntimeError')
 
 
 class FrequencyBandTests(unittest.TestCase):

@@ -1,8 +1,9 @@
 {
   "input_dir": "/projects/0/prjs1489/data/spidr/wav",
   "output_dir": "/scratch-shared/mbentum1/vocoded_speech_weighted_8_bands/wav",
+  "cpus_per_task": 16,
   "files_per_chunk": 500,
-  "max_parallel_chunks": 64,
+  "max_parallel_tasks": 4,
   "sample_rate": 16000,
   "match_rms": false,
   "nbands": 8,

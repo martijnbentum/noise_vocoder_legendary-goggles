@@ -42,10 +42,10 @@ export NUMEXPR_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export PYTHONUNBUFFERED=1
 
-if [ "$mode" = "chunk" ]; then
+if [ "$mode" = "group" ]; then
     : "${SLURM_ARRAY_TASK_ID:?SLURM_ARRAY_TASK_ID is not set}"
-    echo "chunk task: $SLURM_ARRAY_TASK_ID"
-    srun python -m vocoder.slurm_batch chunk \
+    echo "group task: $SLURM_ARRAY_TASK_ID"
+    srun python -m vocoder.slurm_batch group \
         "$config_path" \
         "$SLURM_ARRAY_TASK_ID"
     exit 0
@@ -57,21 +57,23 @@ if [ "$mode" = "finalize" ]; then
     exit 0
 fi
 
-read -r n_chunks max_parallel_chunks run_dir <<EOF
+read -r n_task_groups max_parallel_tasks cpus_per_task run_dir <<EOF
 $(python -m vocoder.slurm_batch prepare "$config_path")
 EOF
 
 echo "prepared run dir: $run_dir"
-echo "chunks: $n_chunks"
-echo "max_parallel_chunks: $max_parallel_chunks"
+echo "task groups: $n_task_groups"
+echo "max_parallel_tasks: $max_parallel_tasks"
+echo "cpus_per_task: $cpus_per_task"
 
 array_job_id=$(sbatch \
     --parsable \
-    --array="0-$(( n_chunks - 1 ))%$max_parallel_chunks" \
-    --job-name="vocode_chunk" \
+    --array="0-$(( n_task_groups - 1 ))%$max_parallel_tasks" \
+    --cpus-per-task="$cpus_per_task" \
+    --job-name="vocode_group" \
     --output="$repo_root/slurm_out/%x-%A_%a.out" \
     --error="$repo_root/slurm_out/%x-%A_%a.err" \
-    --export=ALL,VOCODER_BATCH_MODE=chunk \
+    --export=ALL,VOCODER_BATCH_MODE=group \
     "$script_dir/batch_vocode.sbatch" \
     "$config_path")
 

@@ -110,11 +110,21 @@ The array workflow is:
 1. `sbatch [scripts/batch_vocode.sbatch](/Users/martijn.bentum/vocoder/repo/scripts/batch_vocode.sbatch) config.json`
 2. The bootstrap job prepares `_vocode_run/` next to the output `wav/`
    directory and writes `manifest.txt` plus `run_config.json`.
-3. The bootstrap job submits the real chunk array and a finalizer job.
-4. Each chunk processes one manifest slice, skips valid existing outputs,
+3. The bootstrap job submits the real task-group array and a finalizer job.
+4. Each array task gets `cpus_per_task` CPUs and runs that many Python chunk
+   workers in parallel inside the task.
+5. Each chunk processes one manifest slice, skips valid existing outputs,
    writes per-chunk progress/failure/input-audio logs, and prints local ETA
    lines.
-5. The finalizer merges those logs and writes `summary.json`.
+6. The finalizer merges those logs and writes `summary.json`.
+
+Dry run:
+```bash
+python -m vocoder.slurm_batch dry_run config/legacy_4_bands.json
+```
+This uses the existing manifest when present, otherwise it creates one and
+prints the planned task groups, chunk ranges, total chunks, and files per
+group without submitting any Slurm jobs.
 
 Example submissions:
 ```bash
@@ -122,7 +132,7 @@ sbatch scripts/batch_vocode.sbatch config/speech_weighted_8_bands.json
 sbatch scripts/batch_vocode.sbatch config/legacy_4_bands.json
 ```
 
-The Snellius runner uses unbuffered Python output for startup, chunk
+The Snellius runner uses unbuffered Python output for startup, chunk-group
 progress, failures, and a final run summary. The launcher job writes its
 stdout/stderr to `slurm_out/launcher/`, while chunk and finalizer jobs write
 to `slurm_out/`.

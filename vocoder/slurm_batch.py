@@ -3,31 +3,26 @@ import json
 import math
 import os
 import shutil
-import time
-from itertools import islice
 from pathlib import Path
-
-import soundfile as sf
 
 from . import batch
 from .file_io import (
     DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
-    append_metadata,
     get_output_filename,
-    make_output_shard_name,
 )
 from .vocoder import get_standard_bands
 
 RUN_DIRNAME = '_vocode_run'
+DEFAULT_CPUS_PER_TASK = 16
 DEFAULT_FILES_PER_CHUNK = 500
-DEFAULT_MAX_PARALLEL_CHUNKS = 64
-DEFAULT_PROGRESS_EVERY = 25
+DEFAULT_MAX_PARALLEL_TASKS = 4
 CONFIG_KEYS = {
+    'cpus_per_task',
     'files_per_chunk',
     'frequencies',
     'input_dir',
     'match_rms',
-    'max_parallel_chunks',
+    'max_parallel_tasks',
     'nbands',
     'output_dir',
     'overwrite',
@@ -76,13 +71,16 @@ def normalize_batch_config(config, config_path = ''):
         'config_path': str(config_path),
         'input_dir': str(config['input_dir']),
         'output_dir': str(config['output_dir']),
+        'cpus_per_task': int(
+            config.get('cpus_per_task', DEFAULT_CPUS_PER_TASK)
+        ),
         'files_per_chunk': int(
             config.get('files_per_chunk', DEFAULT_FILES_PER_CHUNK)
         ),
-        'max_parallel_chunks': int(
+        'max_parallel_tasks': int(
             config.get(
-                'max_parallel_chunks',
-                DEFAULT_MAX_PARALLEL_CHUNKS,
+                'max_parallel_tasks',
+                DEFAULT_MAX_PARALLEL_TASKS,
             )
         ),
         'sample_rate': int(config.get('sample_rate', 16000)),
@@ -91,10 +89,12 @@ def normalize_batch_config(config, config_path = ''):
         'frequency_family': config.get('frequency_family', 'default_family'),
         'nbands': int(config.get('nbands', 6)),
     }
+    if normalized['cpus_per_task'] < 1:
+        raise ValueError('cpus_per_task must be at least 1')
     if normalized['files_per_chunk'] < 1:
         raise ValueError('files_per_chunk must be at least 1')
-    if normalized['max_parallel_chunks'] < 1:
-        raise ValueError('max_parallel_chunks must be at least 1')
+    if normalized['max_parallel_tasks'] < 1:
+        raise ValueError('max_parallel_tasks must be at least 1')
     frequencies = config.get('frequencies')
     if frequencies is None:
         frequencies = get_standard_bands(
@@ -146,12 +146,6 @@ def cleanup_previous_run(config):
         shutil.rmtree(run_dir)
 
 
-def read_manifest_count(manifest_path):
-    '''Return the number of files in a manifest.'''
-    with Path(manifest_path).open() as fin:
-        return sum(1 for _ in fin)
-
-
 def write_run_config(run_config_path, config):
     '''Write the normalized run config.'''
     run_config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,9 +173,8 @@ def prepare_run(config_path):
                 'Existing run_config.json does not match the requested config. '
                 'Use overwrite to start a fresh run.'
             )
-    total_files = 0
     if paths['manifest'].exists() and not config['overwrite']:
-        total_files = read_manifest_count(paths['manifest'])
+        total_files = batch.read_manifest_count(paths['manifest'])
     else:
         total_files = build_manifest(config['input_dir'], paths['manifest'])
     if total_files < 1:
@@ -193,212 +186,13 @@ def prepare_run(config_path):
     prepared['n_chunks'] = int(
         math.ceil(total_files / prepared['files_per_chunk'])
     )
+    prepared['chunks_per_task'] = int(prepared['cpus_per_task'])
+    prepared['n_task_groups'] = int(
+        math.ceil(prepared['n_chunks'] / prepared['chunks_per_task'])
+    )
     write_run_config(paths['run_config'], prepared)
-    paths['progress_dir'].mkdir(parents=True, exist_ok=True)
-    paths['failure_dir'].mkdir(parents=True, exist_ok=True)
-    paths['audio_info_dir'].mkdir(parents=True, exist_ok=True)
+    batch.ensure_run_directories(prepared)
     return prepared
-
-
-def get_chunk_bounds(task_id, files_per_chunk, total_files):
-    '''Return manifest bounds for one chunk index.'''
-    start = task_id * files_per_chunk
-    end = min(total_files, start + files_per_chunk)
-    return start, end
-
-
-def iter_manifest_slice(manifest_path, start, end):
-    '''Yield one indexed slice from a manifest file.'''
-    with Path(manifest_path).open() as fin:
-        for index, line in enumerate(islice(fin, start, end), start=start):
-            yield index, line.strip()
-
-
-def get_chunk_progress_path(run_dir, task_id):
-    '''Return the progress file path for one array task.'''
-    return Path(run_dir) / 'progress' / f'chunk_{task_id:05d}.json'
-
-
-def get_chunk_failure_path(run_dir, task_id):
-    '''Return the failure log path for one array task.'''
-    return Path(run_dir) / 'failures' / f'failures_{task_id:05d}.jsonl'
-
-
-def get_chunk_audio_info_path(run_dir, task_id):
-    '''Return the input-audio log path for one array task.'''
-    return Path(run_dir) / 'audio_info' / f'audio_{task_id:05d}.jsonl'
-
-
-def write_chunk_progress(progress_path, payload):
-    '''Write one chunk progress file atomically.'''
-    progress_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = progress_path.with_suffix('.tmp')
-    with temp_path.open('w') as fout:
-        json.dump(payload, fout, indent=2, sort_keys=True)
-        fout.write('\n')
-    temp_path.replace(progress_path)
-
-
-def is_valid_output_file(filename):
-    '''Return whether an existing output file looks usable.'''
-    path = Path(filename)
-    if not path.exists() or path.stat().st_size == 0:
-        return False
-    try:
-        sf.info(path)
-    except RuntimeError:
-        return False
-    return True
-
-
-def get_output_shard_dir(global_index, max_files_per_output_dir):
-    '''Return the shard dir name for one global manifest index.'''
-    if max_files_per_output_dir < 1:
-        return ''
-    shard_index = global_index // max_files_per_output_dir
-    return make_output_shard_name(shard_index)
-
-
-def make_chunk_args(config, filename, output_shard_dir):
-    '''Build one args namespace for handle_filename.'''
-    return argparse.Namespace(
-        filename=filename,
-        sample_rate=config['sample_rate'],
-        butterworth_order=4,
-        match_rms=config['match_rms'],
-        frequencies=config['frequencies'],
-        output_dir=config['output_dir'],
-        input_dir=config['input_dir'],
-        output_shard_dir=output_shard_dir,
-    )
-
-
-def make_audio_info_record(filename):
-    '''Return a compact input-audio record for one source file.'''
-    path = Path(filename)
-    audio_info = sf.info(path)
-    return {
-        'input_filename': str(path),
-        'file_stem': path.stem,
-        'n_samples': int(audio_info.frames),
-    }
-
-
-def print_chunk_progress(task_id, stats, elapsed_seconds):
-    '''Print a compact progress line with ETA for one chunk.'''
-    done = stats['processed'] + stats['skipped'] + stats['failed']
-    assigned = stats['assigned']
-    rate = done / elapsed_seconds if elapsed_seconds > 0 else 0.0
-    remaining = assigned - done
-    eta_seconds = remaining / rate if rate > 0 else 0.0
-    print(
-        f'chunk={task_id}',
-        f'processed={done}/{assigned}',
-        f'created={stats["processed"]}',
-        f'skipped={stats["skipped"]}',
-        f'failed={stats["failed"]}',
-        f'rate={rate:.2f} files/s',
-        f'eta={eta_seconds:.0f}s',
-        flush=True,
-    )
-
-
-def process_chunk(config_path, task_id):
-    '''Process one manifest chunk and write per-task logs.'''
-    config = load_run_config(
-        get_run_paths_from_config_path(config_path)['run_config']
-    )
-    start, end = get_chunk_bounds(
-        task_id,
-        config['files_per_chunk'],
-        config['total_files'],
-    )
-    progress_path = get_chunk_progress_path(config['run_dir'], task_id)
-    failure_path = get_chunk_failure_path(config['run_dir'], task_id)
-    audio_info_path = get_chunk_audio_info_path(config['run_dir'], task_id)
-    if progress_path.exists():
-        progress_path.unlink()
-    if failure_path.exists():
-        failure_path.unlink()
-    if audio_info_path.exists():
-        audio_info_path.unlink()
-    stats = {
-        'task_id': int(task_id),
-        'assigned': max(0, end - start),
-        'processed': 0,
-        'skipped': 0,
-        'failed': 0,
-        'status': 'running',
-    }
-    started_at = time.time()
-    if stats['assigned'] == 0:
-        stats['status'] = 'done'
-        stats['elapsed_seconds'] = 0.0
-        write_chunk_progress(progress_path, stats)
-        print(f'chunk={task_id} assigned=0', flush=True)
-        return stats
-    for local_index, (global_index, filename) in enumerate(
-        iter_manifest_slice(config['manifest_path'], start, end),
-        start=1,
-    ):
-        output_shard_dir = get_output_shard_dir(
-            global_index,
-            DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
-        )
-        output_filename = get_output_filename(
-            filename,
-            output_dir=config['output_dir'],
-            input_dir=config['input_dir'],
-            output_shard_dir=output_shard_dir,
-            n_bands=config['n_bands'],
-        )
-        try:
-            append_metadata(
-                audio_info_path,
-                make_audio_info_record(filename),
-            )
-        except RuntimeError:
-            pass
-        if is_valid_output_file(output_filename):
-            stats['skipped'] += 1
-        else:
-            args = make_chunk_args(config, filename, output_shard_dir)
-            try:
-                batch.handle_filename(args)
-                stats['processed'] += 1
-            except Exception as exc:
-                stats['failed'] += 1
-                append_metadata(
-                    failure_path,
-                    batch.make_failure_result(
-                        filename,
-                        time.time() - started_at,
-                        os.getpid(),
-                        exc,
-                    ),
-                )
-        if (
-            local_index % DEFAULT_PROGRESS_EVERY == 0
-            or local_index == stats['assigned']
-        ):
-            elapsed_seconds = time.time() - started_at
-            stats['elapsed_seconds'] = float(round(elapsed_seconds, 4))
-            write_chunk_progress(progress_path, stats)
-            print_chunk_progress(task_id, stats, elapsed_seconds)
-    elapsed_seconds = time.time() - started_at
-    stats['status'] = 'done'
-    stats['elapsed_seconds'] = float(round(elapsed_seconds, 4))
-    write_chunk_progress(progress_path, stats)
-    print(
-        f'chunk={task_id} done',
-        f'assigned={stats["assigned"]}',
-        f'created={stats["processed"]}',
-        f'skipped={stats["skipped"]}',
-        f'failed={stats["failed"]}',
-        f'elapsed={elapsed_seconds:.1f}s',
-        flush=True,
-    )
-    return stats
 
 
 def get_run_paths_from_config_path(config_path):
@@ -407,8 +201,72 @@ def get_run_paths_from_config_path(config_path):
     return get_run_paths(config['output_dir'])
 
 
+def process_group(config_path, group_id):
+    '''Process one Slurm task group of chunk ids.'''
+    config = load_run_config(
+        get_run_paths_from_config_path(config_path)['run_config']
+    )
+    chunk_ids = batch.get_chunk_ids_for_group(
+        group_id,
+        config['chunks_per_task'],
+        config['n_chunks'],
+    )
+    nprocess = int(
+        os.environ.get('SLURM_CPUS_PER_TASK', config['cpus_per_task'])
+    )
+    return batch.process_manifest_chunks_parallel(
+        config,
+        chunk_ids,
+        nprocess=nprocess,
+    )
+
+
+def dry_run(config_path):
+    '''Print the grouped chunk layout without submitting Slurm jobs.'''
+    config = prepare_run(config_path)
+    print('dry run:', flush=True)
+    print(f'run_dir: {config["run_dir"]}', flush=True)
+    print(f'manifest_path: {config["manifest_path"]}', flush=True)
+    print(f'total_files: {config["total_files"]}', flush=True)
+    print(f'files_per_chunk: {config["files_per_chunk"]}', flush=True)
+    print(f'n_chunks: {config["n_chunks"]}', flush=True)
+    print(f'cpus_per_task: {config["cpus_per_task"]}', flush=True)
+    print(f'chunks_per_task: {config["chunks_per_task"]}', flush=True)
+    print(f'n_task_groups: {config["n_task_groups"]}', flush=True)
+    print(
+        f'max_parallel_tasks: {config["max_parallel_tasks"]}',
+        flush=True,
+    )
+    for group_id in range(config['n_task_groups']):
+        chunk_ids = batch.get_chunk_ids_for_group(
+            group_id,
+            config['chunks_per_task'],
+            config['n_chunks'],
+        )
+        start_chunk = chunk_ids[0]
+        end_chunk = chunk_ids[-1]
+        start_file, _ = batch.get_chunk_bounds(
+            start_chunk,
+            config['files_per_chunk'],
+            config['total_files'],
+        )
+        _, end_file = batch.get_chunk_bounds(
+            end_chunk,
+            config['files_per_chunk'],
+            config['total_files'],
+        )
+        print(
+            f'group={group_id}',
+            f'chunks={start_chunk}-{end_chunk}',
+            f'n_chunks={len(chunk_ids)}',
+            f'files={end_file - start_file}',
+            flush=True,
+        )
+    return config
+
+
 def merge_failures(config):
-    '''Merge per-task failure logs into one failure log.'''
+    '''Merge per-chunk failure logs into one failure log.'''
     failure_dir = Path(config['run_dir']) / 'failures'
     merged_path = Path(config['run_dir']) / 'failures.jsonl'
     with merged_path.open('w') as fout:
@@ -418,7 +276,7 @@ def merge_failures(config):
 
 
 def merge_audio_info(config):
-    '''Merge per-task input-audio logs into one metadata file.'''
+    '''Merge per-chunk input-audio logs into one metadata file.'''
     audio_info_dir = Path(config['run_dir']) / 'audio_info'
     merged_path = Path(config['run_dir']) / 'audio_info.jsonl'
     with merged_path.open('w') as fout:
@@ -430,12 +288,12 @@ def merge_audio_info(config):
 def count_valid_outputs(config):
     '''Count valid output files referenced by the manifest.'''
     completed = 0
-    for global_index, filename in iter_manifest_slice(
+    for global_index, filename in batch.iter_manifest_slice(
         config['manifest_path'],
         0,
         config['total_files'],
     ):
-        output_shard_dir = get_output_shard_dir(
+        output_shard_dir = batch.get_output_shard_dir(
             global_index,
             DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
         )
@@ -446,7 +304,7 @@ def count_valid_outputs(config):
             output_shard_dir=output_shard_dir,
             n_bands=config['n_bands'],
         )
-        if is_valid_output_file(output_filename):
+        if batch.is_valid_output_file(output_filename):
             completed += 1
     return completed
 
@@ -471,6 +329,8 @@ def finalize_run(config_path):
     summary = {
         'total_files': config['total_files'],
         'n_chunks': config['n_chunks'],
+        'n_task_groups': config['n_task_groups'],
+        'cpus_per_task': config['cpus_per_task'],
         'completed_outputs': completed_outputs,
         'created_files': created_files,
         'skipped_files': skipped_files,
@@ -497,9 +357,12 @@ def build_cli():
     prepare_parser = subparsers.add_parser('prepare')
     prepare_parser.add_argument('config_path')
 
-    chunk_parser = subparsers.add_parser('chunk')
-    chunk_parser.add_argument('config_path')
-    chunk_parser.add_argument('task_id', type=int)
+    dry_run_parser = subparsers.add_parser('dry_run')
+    dry_run_parser.add_argument('config_path')
+
+    group_parser = subparsers.add_parser('group')
+    group_parser.add_argument('config_path')
+    group_parser.add_argument('group_id', type=int)
 
     finalize_parser = subparsers.add_parser('finalize')
     finalize_parser.add_argument('config_path')
@@ -511,13 +374,17 @@ def main():
     if args.command == 'prepare':
         prepared = prepare_run(args.config_path)
         print(
-            prepared['n_chunks'],
-            prepared['max_parallel_chunks'],
+            prepared['n_task_groups'],
+            prepared['max_parallel_tasks'],
+            prepared['cpus_per_task'],
             prepared['run_dir'],
         )
         return
-    if args.command == 'chunk':
-        process_chunk(args.config_path, args.task_id)
+    if args.command == 'dry_run':
+        dry_run(args.config_path)
+        return
+    if args.command == 'group':
+        process_group(args.config_path, args.group_id)
         return
     finalize_run(args.config_path)
 
