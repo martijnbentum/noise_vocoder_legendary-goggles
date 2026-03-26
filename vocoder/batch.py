@@ -223,6 +223,11 @@ def get_output_shard_dir(global_index, max_files_per_output_dir):
     return make_output_shard_name(shard_index)
 
 
+def get_chunk_output_dir(chunk_id):
+    '''Return the wav output dir name for one processing chunk.'''
+    return make_output_shard_name(chunk_id)
+
+
 def make_chunk_args(config, filename, output_shard_dir):
     '''Build one args namespace for handle_filename.'''
     return argparse.Namespace(
@@ -304,10 +309,7 @@ def process_manifest_chunk(config, chunk_id):
         iter_manifest_slice(config['manifest_path'], start, end),
         start=1,
     ):
-        output_shard_dir = get_output_shard_dir(
-            global_index,
-            DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
-        )
+        output_shard_dir = get_chunk_output_dir(chunk_id)
         output_filename = get_output_filename(
             filename,
             output_dir=config['output_dir'],
@@ -315,10 +317,6 @@ def process_manifest_chunk(config, chunk_id):
             output_shard_dir=output_shard_dir,
             n_bands=config['n_bands'],
         )
-        try:
-            append_metadata(audio_info_path, make_audio_info_record(filename))
-        except RuntimeError:
-            pass
         if is_valid_output_file(output_filename):
             stats['skipped'] += 1
             try:

@@ -1,4 +1,3 @@
-import argparse
 import json
 import math
 import os
@@ -6,10 +5,7 @@ import shutil
 from pathlib import Path
 
 from . import batch
-from .file_io import (
-    DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
-    get_output_filename,
-)
+from .file_io import get_output_filename
 from .vocoder import get_standard_bands
 
 RUN_DIRNAME = '_vocode_run'
@@ -293,10 +289,8 @@ def count_valid_outputs(config):
         0,
         config['total_files'],
     ):
-        output_shard_dir = batch.get_output_shard_dir(
-            global_index,
-            DEFAULT_MAX_OUTPUT_FILES_PER_DIR,
-        )
+        chunk_id = global_index // config['files_per_chunk']
+        output_shard_dir = batch.get_chunk_output_dir(chunk_id)
         output_filename = get_output_filename(
             filename,
             output_dir=config['output_dir'],

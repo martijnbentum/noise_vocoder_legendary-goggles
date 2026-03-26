@@ -416,6 +416,12 @@ class HandleArgsTests(unittest.TestCase):
         chunk_ids = batch.get_chunk_ids_for_group(2, 16, 43)
         self.assertEqual(chunk_ids, list(range(32, 43)))
 
+    def test_get_chunk_output_dir_matches_processing_chunk_id(self):
+        self.assertEqual(
+            batch.get_chunk_output_dir(42),
+            'chunk_00042',
+        )
+
     def test_make_audio_info_record_returns_stem_and_sample_count(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = vocoder_module.Path(temp_dir) / 'input.wav'
@@ -434,6 +440,48 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(record['output_filename'], str(wav_path))
         self.assertEqual(record['file_stem'], 'demo_voc6')
         self.assertEqual(record['n_samples'], 1234)
+
+    def test_count_valid_outputs_uses_processing_chunk_dirs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = vocoder_module.Path(temp_dir) / 'input'
+            output_dir = vocoder_module.Path(temp_dir) / 'job' / 'wav'
+            input_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            filenames = []
+            for index in range(2):
+                filename = input_dir / f'{index}.wav'
+                filename.write_bytes(b'RIFF')
+                filenames.append(str(filename))
+            run_dir = output_dir.parent / '_vocode_run'
+            manifest_path = run_dir / 'manifest.txt'
+            run_dir.mkdir(parents=True)
+            manifest_path.write_text('\n'.join(filenames) + '\n')
+            output_filename = file_io.get_output_filename(
+                filenames[0],
+                output_dir=str(output_dir),
+                input_dir=str(input_dir),
+                output_shard_dir='chunk_00000',
+                n_bands=6,
+            )
+            vocoder_module.Path(output_filename).parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            vocoder_module.Path(output_filename).write_bytes(b'RIFF')
+            config = {
+                'manifest_path': str(manifest_path),
+                'total_files': 2,
+                'files_per_chunk': 1,
+                'output_dir': str(output_dir),
+                'input_dir': str(input_dir),
+                'n_bands': 6,
+            }
+            with mock.patch(
+                'vocoder.batch.is_valid_output_file',
+                side_effect=lambda path: path == output_filename,
+            ):
+                completed = slurm_batch.count_valid_outputs(config)
+        self.assertEqual(completed, 1)
 
     def test_slurm_dry_run_prints_grouped_chunk_layout(self):
         with tempfile.TemporaryDirectory() as temp_dir:
