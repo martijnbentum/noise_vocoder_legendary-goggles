@@ -151,6 +151,24 @@ def load_run_config(run_config_path):
         return json.load(fin)
 
 
+def has_existing_run_state(paths, output_dir):
+    '''Return whether the output dir already contains resumable batch state.'''
+    if paths['manifest'].exists():
+        return True
+    if any(paths['progress_dir'].glob('*.json')):
+        return True
+    if any(paths['failure_dir'].glob('*.jsonl')):
+        return True
+    if any(paths['audio_info_dir'].glob('*.jsonl')):
+        return True
+    output_path = Path(output_dir)
+    if any(output_path.glob('chunk_*')):
+        return True
+    if any(output_path.rglob('*.wav')):
+        return True
+    return False
+
+
 def prepare_run(config_path):
     '''Prepare one batch run and return the saved run config.'''
     config = normalize_batch_config(load_batch_config(config_path), config_path)
@@ -159,7 +177,10 @@ def prepare_run(config_path):
         cleanup_previous_run(config)
     if paths['run_config'].exists():
         existing = load_run_config(paths['run_config'])
-        if not configs_match(existing, config):
+        if (
+            not configs_match(existing, config)
+            and has_existing_run_state(paths, config['output_dir'])
+        ):
             raise ValueError(
                 'Existing run_config.json does not match the requested config. '
                 'Use overwrite to start a fresh run.'

@@ -411,6 +411,32 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(prepared['cpus_per_task'], 16)
         self.assertEqual(len(manifest_lines), 2)
 
+    def test_prepare_run_ignores_stale_run_config_without_run_state(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = vocoder_module.Path(temp_dir) / 'input'
+            output_dir = vocoder_module.Path(temp_dir) / 'job' / 'wav'
+            run_dir = output_dir.parent / '_vocode_run'
+            input_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            (input_dir / 'a.wav').write_bytes(b'RIFF')
+            config_path = vocoder_module.Path(temp_dir) / 'config.json'
+            config_path.write_text(json.dumps({
+                'input_dir': str(input_dir),
+                'output_dir': str(output_dir),
+                'files_per_chunk': 1,
+            }))
+            stale_run_config = run_dir / 'run_config.json'
+            stale_run_config.write_text(json.dumps({
+                'input_dir': '/old/input',
+                'output_dir': '/old/output',
+            }))
+            prepared = slurm_batch.prepare_run(config_path)
+            saved_config = json.loads(stale_run_config.read_text())
+        self.assertEqual(prepared['total_files'], 1)
+        self.assertEqual(saved_config['input_dir'], str(input_dir))
+        self.assertEqual(saved_config['output_dir'], str(output_dir))
+
     def test_get_chunk_ids_for_group_groups_chunks_by_worker_count(self):
         chunk_ids = batch.get_chunk_ids_for_group(2, 16, 43)
         self.assertEqual(chunk_ids, list(range(32, 43)))
