@@ -111,8 +111,8 @@ The array workflow is:
 2. The bootstrap job prepares `_vocode_run/` next to the output `wav/`
    directory and writes `manifest.txt` plus `run_config.json`.
 3. The bootstrap job submits the real task-group array and a finalizer job.
-4. Each array task gets `cpus_per_task` CPUs and runs that many Python chunk
-   workers in parallel inside the task.
+4. Each array task gets 16 CPUs and runs 16 Python chunk workers in parallel
+   inside the task.
 5. Each chunk processes one manifest slice, skips valid existing outputs,
    writes per-chunk progress/failure/input-audio logs, and prints local ETA
    lines.

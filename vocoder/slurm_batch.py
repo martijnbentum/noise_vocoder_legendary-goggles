@@ -14,7 +14,6 @@ DEFAULT_CPUS_PER_TASK = 16
 DEFAULT_FILES_PER_CHUNK = 500
 DEFAULT_MAX_PARALLEL_TASKS = 4
 CONFIG_KEYS = {
-    'cpus_per_task',
     'files_per_chunk',
     'frequencies',
     'input_dir',
@@ -68,9 +67,6 @@ def normalize_batch_config(config, config_path = ''):
         'config_path': str(config_path),
         'input_dir': str(config['input_dir']),
         'output_dir': str(config['output_dir']),
-        'cpus_per_task': int(
-            config.get('cpus_per_task', DEFAULT_CPUS_PER_TASK)
-        ),
         'files_per_chunk': int(
             config.get('files_per_chunk', DEFAULT_FILES_PER_CHUNK)
         ),
@@ -86,8 +82,6 @@ def normalize_batch_config(config, config_path = ''):
         'frequency_family': config.get('frequency_family', 'default_family'),
         'nbands': int(config.get('nbands', 6)),
     }
-    if normalized['cpus_per_task'] < 1:
-        raise ValueError('cpus_per_task must be at least 1')
     if normalized['files_per_chunk'] < 1:
         raise ValueError('files_per_chunk must be at least 1')
     if normalized['max_parallel_tasks'] < 1:
@@ -183,9 +177,9 @@ def prepare_run(config_path):
     prepared['n_chunks'] = int(
         math.ceil(total_files / prepared['files_per_chunk'])
     )
-    prepared['chunks_per_task'] = int(prepared['cpus_per_task'])
+    prepared['cpus_per_task'] = DEFAULT_CPUS_PER_TASK
     prepared['n_task_groups'] = int(
-        math.ceil(prepared['n_chunks'] / prepared['chunks_per_task'])
+        math.ceil(prepared['n_chunks'] / DEFAULT_CPUS_PER_TASK)
     )
     write_run_config(paths['run_config'], prepared)
     batch.ensure_run_directories(prepared)
@@ -205,11 +199,11 @@ def process_group(config_path, group_id):
     )
     chunk_ids = batch.get_chunk_ids_for_group(
         group_id,
-        config['chunks_per_task'],
+        DEFAULT_CPUS_PER_TASK,
         config['n_chunks'],
     )
     nprocess = int(
-        os.environ.get('SLURM_CPUS_PER_TASK', config['cpus_per_task'])
+        os.environ.get('SLURM_CPUS_PER_TASK', DEFAULT_CPUS_PER_TASK)
     )
     return batch.process_manifest_chunks_parallel(
         config,
@@ -227,8 +221,7 @@ def dry_run(config_path):
     print(f'total_files: {config["total_files"]}', flush=True)
     print(f'files_per_chunk: {config["files_per_chunk"]}', flush=True)
     print(f'n_chunks: {config["n_chunks"]}', flush=True)
-    print(f'cpus_per_task: {config["cpus_per_task"]}', flush=True)
-    print(f'chunks_per_task: {config["chunks_per_task"]}', flush=True)
+    print(f'cpus_per_task: {DEFAULT_CPUS_PER_TASK}', flush=True)
     print(f'n_task_groups: {config["n_task_groups"]}', flush=True)
     print(
         f'max_parallel_tasks: {config["max_parallel_tasks"]}',
@@ -237,7 +230,7 @@ def dry_run(config_path):
     for group_id in range(config['n_task_groups']):
         chunk_ids = batch.get_chunk_ids_for_group(
             group_id,
-            config['chunks_per_task'],
+            DEFAULT_CPUS_PER_TASK,
             config['n_chunks'],
         )
         start_chunk = chunk_ids[0]
@@ -325,7 +318,7 @@ def finalize_run(config_path):
         'total_files': config['total_files'],
         'n_chunks': config['n_chunks'],
         'n_task_groups': config['n_task_groups'],
-        'cpus_per_task': config['cpus_per_task'],
+        'cpus_per_task': DEFAULT_CPUS_PER_TASK,
         'completed_outputs': completed_outputs,
         'created_files': created_files,
         'skipped_files': skipped_files,
@@ -371,7 +364,6 @@ def main():
         print(
             prepared['n_task_groups'],
             prepared['max_parallel_tasks'],
-            prepared['cpus_per_task'],
             prepared['run_dir'],
         )
         return

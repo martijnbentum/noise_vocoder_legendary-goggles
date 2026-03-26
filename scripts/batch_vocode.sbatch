@@ -22,6 +22,7 @@ if [ "${config_path#/}" = "$config_path" ]; then
 fi
 env_dir="$repo_root/.venv-snellius"
 mode="${VOCODER_BATCH_MODE:-bootstrap}"
+cpus_per_task=16
 
 module purge
 module load 2025
@@ -57,7 +58,7 @@ if [ "$mode" = "finalize" ]; then
     exit 0
 fi
 
-read -r n_task_groups max_parallel_tasks cpus_per_task run_dir <<EOF
+read -r n_task_groups max_parallel_tasks run_dir <<EOF
 $(python -m vocoder.slurm_batch prepare "$config_path")
 EOF
 

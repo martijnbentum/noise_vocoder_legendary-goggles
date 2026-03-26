@@ -363,7 +363,6 @@ class HandleArgsTests(unittest.TestCase):
             }
         )
         self.assertEqual(config['files_per_chunk'], 500)
-        self.assertEqual(config['cpus_per_task'], 16)
         self.assertEqual(config['max_parallel_tasks'], 4)
         self.assertFalse(config['match_rms'])
         self.assertEqual(
@@ -409,7 +408,7 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(prepared['total_files'], 2)
         self.assertEqual(prepared['n_chunks'], 2)
         self.assertEqual(prepared['n_task_groups'], 1)
-        self.assertEqual(prepared['chunks_per_task'], 16)
+        self.assertEqual(prepared['cpus_per_task'], 16)
         self.assertEqual(len(manifest_lines), 2)
 
     def test_get_chunk_ids_for_group_groups_chunks_by_worker_count(self):
@@ -496,7 +495,6 @@ class HandleArgsTests(unittest.TestCase):
                 'input_dir': str(input_dir),
                 'output_dir': str(output_dir),
                 'files_per_chunk': 2,
-                'cpus_per_task': 2,
                 'max_parallel_tasks': 3,
             }))
             buffer = io.StringIO()
@@ -505,9 +503,8 @@ class HandleArgsTests(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn('total_files: 5', output)
         self.assertIn('n_chunks: 3', output)
-        self.assertIn('n_task_groups: 2', output)
-        self.assertIn('group=0 chunks=0-1 n_chunks=2 files=4', output)
-        self.assertIn('group=1 chunks=2-2 n_chunks=1 files=1', output)
+        self.assertIn('n_task_groups: 1', output)
+        self.assertIn('group=0 chunks=0-2 n_chunks=3 files=5', output)
 
     def test_process_manifest_chunk_writes_failure_log(self):
         with tempfile.TemporaryDirectory() as temp_dir:
