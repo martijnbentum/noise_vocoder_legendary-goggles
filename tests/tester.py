@@ -643,6 +643,29 @@ class FrequencyBandTests(unittest.TestCase):
                 band = vocoder_module.Frequency_band(100, 400, parent)
         self.assertEqual(band.center_frequency, 200.0)
 
+    def test_sine_carrier_phase_is_deterministic_per_band(self):
+        parent = SimpleNamespace(
+            signal=np.array([0.1, 0.2, 0.3]),
+            white_noise=np.array([1.0, 2.0, 3.0]),
+            sample_rate=16000,
+            butterworth_order=4,
+            match_rms=False,
+            carrier_type='sine',
+        )
+        with mock.patch(
+            'vocoder.vocoder.sp.butterworth_bandpass_filter',
+            return_value=np.array([0.5, 0.5, 0.5]),
+        ):
+            with mock.patch(
+                'vocoder.vocoder.sp.extract_envelope',
+                return_value=np.array([2.0, 3.0, 4.0]),
+            ):
+                band = vocoder_module.Frequency_band(100, 400, parent)
+                other_band = vocoder_module.Frequency_band(100, 400, parent)
+                shifted_band = vocoder_module.Frequency_band(100, 500, parent)
+        self.assertEqual(band.carrier_phase, other_band.carrier_phase)
+        self.assertNotEqual(band.carrier_phase, shifted_band.carrier_phase)
+
     def test_vocoded_signal_uses_sine_carrier_when_requested(self):
         parent = SimpleNamespace(
             signal=np.array([0.1, 0.2, 0.3]),
@@ -673,6 +696,7 @@ class FrequencyBandTests(unittest.TestCase):
             200.0,
             3,
             sample_rate=16000,
+            phase=band.carrier_phase,
         )
 
 

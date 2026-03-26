@@ -405,6 +405,12 @@ class Frequency_band:
     @property
     def center_frequency(self):
         return np.sqrt(self.low_frequency * self.high_frequency)
+
+    @property
+    def carrier_phase(self):
+        seed = int(self.low_frequency * 1000 + self.high_frequency)
+        rng = np.random.default_rng(seed)
+        return float(rng.uniform(0.0, 2 * np.pi))
             
     @property
     def vocoded_signal(self):
@@ -422,6 +428,7 @@ class Frequency_band:
                 self.center_frequency,
                 len(self.signal),
                 sample_rate=self.parent.sample_rate,
+                phase=self.carrier_phase,
             )
         x = self.envelope * carrier
         if self.parent.match_rms:
