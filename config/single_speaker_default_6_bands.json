@@ -1,6 +1,6 @@
 {
-  "input_dir": "/projects/0/prjs1489/data/spidr/wav",
-  "output_dir": "/scratch-shared/mbentum1/vocoded_default_6_bands/wav",
+  "input_dir": "/projects/0/prjs1489/data/MLS/mls_dutch/train/audio/2450/",
+  "output_dir": "/scratch-shared/mbentum1/single_speaker_vocoded_default_6_bands/wav",
   "files_per_chunk": 500,
   "max_parallel_tasks": 4,
   "sample_rate": 16000,
