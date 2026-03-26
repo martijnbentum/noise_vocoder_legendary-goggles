@@ -479,6 +479,60 @@ class HandleArgsTests(unittest.TestCase):
         self.assertEqual(saved_config['input_dir'], str(input_dir))
         self.assertEqual(saved_config['output_dir'], str(output_dir))
 
+    def test_prepare_run_accepts_matching_expanded_runtime_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = vocoder_module.Path(temp_dir) / 'input'
+            output_dir = vocoder_module.Path(temp_dir) / 'job' / 'wav'
+            run_dir = output_dir.parent / '_vocode_run'
+            input_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            input_filename = input_dir / 'a.wav'
+            input_filename.write_bytes(b'RIFF')
+            config_path = vocoder_module.Path(temp_dir) / 'config.json'
+            config_path.write_text(json.dumps({
+                'input_dir': str(input_dir),
+                'output_dir': str(output_dir),
+                'files_per_chunk': 1,
+                'max_parallel_tasks': 4,
+                'sample_rate': 16000,
+                'match_rms': False,
+                'carrier_type': 'sine',
+                'nbands': 8,
+                'frequency_family': 'default_family',
+            }))
+            manifest_path = run_dir / 'manifest.txt'
+            manifest_path.write_text(f'{input_filename}\n')
+            run_config_path = run_dir / 'run_config.json'
+            run_config_path.write_text(json.dumps({
+                'carrier_type': 'sine',
+                'config_path': '/old/location/config.json',
+                'cpus_per_task': 16,
+                'files_per_chunk': 1,
+                'frequencies': [
+                    50, 94, 178, 335, 632, 1193, 2249, 4242, 7999,
+                ],
+                'frequency_family': 'default_family',
+                'input_dir': str(input_dir),
+                'manifest_path': str(manifest_path),
+                'match_rms': False,
+                'max_parallel_tasks': 4,
+                'n_bands': 8,
+                'n_chunks': 1,
+                'n_task_groups': 1,
+                'nbands': 8,
+                'output_dir': str(output_dir),
+                'run_dir': str(run_dir),
+                'sample_rate': 16000,
+                'total_files': 1,
+            }))
+            prepared = slurm_batch.prepare_run(config_path)
+            saved_config = json.loads(run_config_path.read_text())
+        self.assertEqual(prepared['total_files'], 1)
+        self.assertEqual(prepared['n_chunks'], 1)
+        self.assertEqual(saved_config['output_dir'], str(output_dir))
+        self.assertEqual(saved_config['carrier_type'], 'sine')
+
     def test_get_chunk_ids_for_group_groups_chunks_by_worker_count(self):
         chunk_ids = batch.get_chunk_ids_for_group(2, 16, 43)
         self.assertEqual(chunk_ids, list(range(32, 43)))

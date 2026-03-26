@@ -1,0 +1,86 @@
+Failure log / resume investigation
+=================================
+
+Observed issue 1
+----------------
+A previous vocode run produced a partial result but no failure logs were
+written.
+
+Possible causes
+---------------
+- Per-file failures are only logged inside the `except Exception` block in
+  `vocoder/batch.py` around `handle_filename()`. If a worker dies outside that
+  path, no failure jsonl record is written.
+- A worker can be terminated by Slurm wall time, OOM, SIGKILL, or a native
+  library crash. In those cases the process may stop without reaching the
+  Python exception handler.
+- Progress is only flushed every 25 files or at chunk end. A chunk can create
+  some wav files and then die before any progress file is written.
+- Some chunk-level operations are outside the guarded per-file block, such as
+  manifest iteration, output-path creation, and progress-file writes. If one
+  of those fails, the chunk can abort without a failure record.
+- Output writes are not atomic. A worker killed during `sf.write()` may leave
+  a partial or missing wav file without producing a failure log.
+
+Observed issue 2
+----------------
+Restarting a previous run failed with:
+
+ValueError: Existing run_config.json does not match the requested config.
+Use overwrite to start a fresh run.
+
+Observed config mismatch pattern
+-------------------------------
+The user config is a minimal config, for example:
+
+{
+  "input_dir": "/projects/0/prjs1489/data/spidr/wav",
+  "output_dir": "/scratch-shared/mbentum1/vocoded_default_8_bands_sine/wav",
+  "files_per_chunk": 500,
+  "max_parallel_tasks": 4,
+  "sample_rate": 16000,
+  "match_rms": false,
+  "carrier_type": "sine",
+  "nbands": 8,
+  "frequency_family": "default_family",
+  "overwrite": false
+}
+
+The saved `_vocode_run/run_config.json` is an expanded runtime config and also
+contains derived fields such as:
+- `config_path`
+- `cpus_per_task`
+- `frequencies`
+- `manifest_path`
+- `n_bands`
+- `n_chunks`
+- `n_task_groups`
+- `run_dir`
+- `total_files`
+
+Likely bug
+----------
+`prepare_run()` normalizes the requested config and compares it against the
+stored runtime config. The stored file includes derived runtime fields, while
+the requested config only contains user config fields plus normalized values.
+That makes a resume fail even when the original user config is effectively the
+same.
+
+Expected behavior
+-----------------
+For resume checks, the code should compare like with like:
+- Either derive the runtime config from the requested config first and compare
+  only stable runtime fields.
+- Or compare only the subset of user-configurable fields plus resolved
+  frequencies.
+
+Concretely, the script should build the normalized config from the local config
+file first, then compare that normalized representation against the stored
+version in `_vocode_run/run_config.json` using a shared comparable subset.
+
+Relevant code area
+------------------
+- `vocoder/slurm_batch.py`
+- `prepare_run()`
+- `configs_match()`
+- `sanitize_runtime_config()`

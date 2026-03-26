@@ -26,6 +26,18 @@ CONFIG_KEYS = {
     'sample_rate',
     'frequency_family',
 }
+COMPARABLE_CONFIG_KEYS = {
+    'carrier_type',
+    'files_per_chunk',
+    'frequencies',
+    'frequency_family',
+    'input_dir',
+    'match_rms',
+    'max_parallel_tasks',
+    'nbands',
+    'output_dir',
+    'sample_rate',
+}
 
 
 def get_run_dir(output_dir):
@@ -114,9 +126,18 @@ def sanitize_runtime_config(config):
     }
 
 
+def comparable_config(config):
+    '''Return the stable config fields used for resume checks.'''
+    return {
+        key: value
+        for key, value in sanitize_runtime_config(config).items()
+        if key in COMPARABLE_CONFIG_KEYS
+    }
+
+
 def configs_match(left, right):
     '''Return whether two normalized configs are compatible.'''
-    return sanitize_runtime_config(left) == sanitize_runtime_config(right)
+    return comparable_config(left) == comparable_config(right)
 
 
 def build_manifest(input_dir, manifest_path):
