@@ -604,6 +604,56 @@ class HandleArgsTests(unittest.TestCase):
                 completed = slurm_batch.count_valid_outputs(config)
         self.assertEqual(completed, 1)
 
+    def test_finalize_run_uses_audio_info_records_for_completed_outputs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_dir = vocoder_module.Path(temp_dir) / 'input'
+            output_dir = vocoder_module.Path(temp_dir) / 'job' / 'wav'
+            run_dir = output_dir.parent / '_vocode_run'
+            input_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            batch.ensure_run_directories({'run_dir': str(run_dir)})
+            config_path = vocoder_module.Path(temp_dir) / 'config.json'
+            config_path.write_text(json.dumps({
+                'input_dir': str(input_dir),
+                'output_dir': str(output_dir),
+                'files_per_chunk': 2,
+            }))
+            run_config_path = run_dir / 'run_config.json'
+            run_config_path.write_text(json.dumps({
+                'input_dir': str(input_dir),
+                'output_dir': str(output_dir),
+                'run_dir': str(run_dir),
+                'manifest_path': str(run_dir / 'manifest.txt'),
+                'total_files': 3,
+                'files_per_chunk': 2,
+                'n_chunks': 2,
+                'n_task_groups': 1,
+            }))
+            (run_dir / 'progress' / 'chunk_00000.json').write_text(
+                json.dumps({
+                    'task_id': 0,
+                    'assigned': 2,
+                    'processed': 1,
+                    'skipped': 1,
+                    'failed': 0,
+                    'status': 'done',
+                })
+            )
+            (run_dir / 'audio_info' / 'audio_00000.jsonl').write_text(
+                json.dumps({'output_filename': 'a.wav'}) + '\n'
+                + json.dumps({'output_filename': 'b.wav'}) + '\n'
+            )
+            summary = slurm_batch.finalize_run(config_path)
+            summary_path = run_dir / 'summary.json'
+            saved_summary = json.loads(summary_path.read_text())
+        self.assertEqual(summary['completed_outputs'], 2)
+        self.assertEqual(summary['missing_outputs'], 1)
+        self.assertEqual(summary['created_files'], 1)
+        self.assertEqual(summary['skipped_files'], 1)
+        self.assertEqual(summary['failed_files'], 0)
+        self.assertEqual(summary['failed_chunks'], 1)
+        self.assertEqual(saved_summary['completed_outputs'], 2)
+
     def test_slurm_dry_run_prints_grouped_chunk_layout(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_dir = vocoder_module.Path(temp_dir) / 'input'

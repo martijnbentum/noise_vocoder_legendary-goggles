@@ -323,6 +323,12 @@ def merge_audio_info(config):
     return merged_path
 
 
+def count_audio_info_records(audio_info_path):
+    '''Count merged audio-info records for one batch run.'''
+    with Path(audio_info_path).open() as fin:
+        return sum(1 for _ in fin if _.strip())
+
+
 def count_valid_outputs(config):
     '''Count valid output files referenced by the manifest.'''
     completed = 0
@@ -357,7 +363,7 @@ def finalize_run(config_path):
             chunk_progress.append(json.load(fin))
     merged_failures = merge_failures(config)
     merged_audio_info = merge_audio_info(config)
-    completed_outputs = count_valid_outputs(config)
+    completed_outputs = count_audio_info_records(merged_audio_info)
     failed_files = sum(item['failed'] for item in chunk_progress)
     skipped_files = sum(item['skipped'] for item in chunk_progress)
     created_files = sum(item['processed'] for item in chunk_progress)
